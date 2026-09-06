@@ -34,3 +34,15 @@ Este repositorio es público. No debe contener credenciales, tokens, rutas de pr
 privados del creador, volcados de la base de datos ni el contenido de los espacios de
 trabajo de los agentes. El fichero `.gitignore` bloquea esas rutas, pero la
 responsabilidad de no pegar datos sensibles en la documentación es de quien escribe.
+
+## Motores
+
+Cada rol se ejecuta con el motor que le asigna la constante `ENGINE_POR_ROL` en
+`src/core/roles.ts`.
+
+| Rol | Motor |
+| --- | --- |
+| orchestrator | claude_code |
+| builder | claude_code |
+| reviewer | codex |
+| researcher | claude_code |
