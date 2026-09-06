@@ -6,6 +6,10 @@
  * dice qué está haciendo: el fichero que toca, el comando que ejecuta, lo que busca.
  */
 export function describirUsoDeHerramienta(herramienta: string, argumentos: unknown): string {
+  return recortar(describir(herramienta, argumentos), 140);
+}
+
+function describir(herramienta: string, argumentos: unknown): string {
   const args = (argumentos ?? {}) as Record<string, unknown>;
   const texto = (clave: string): string | null => {
     const valor = args[clave];
@@ -44,6 +48,13 @@ export function describirUsoDeHerramienta(herramienta: string, argumentos: unkno
 
     case 'TodoWrite':
       return 'actualiza su lista de pasos';
+
+    // Con esta herramienta el agente entrega su resultado final. Su contenido es el
+    // resumen entero, que ya se ve en la tarea: en el panel solo interesa saber que ya
+    // ha terminado.
+    case 'StructuredOutput':
+    case 'structured_output':
+      return 'entrega su resultado';
 
     default: {
       // Herramienta que no conocemos: se enseña el primer texto corto que traiga.

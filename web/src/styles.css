@@ -173,32 +173,37 @@ button {
  * Los agentes rodean al orquestador: dos paneles a la izquierda, el chat en el centro y
  * el resto del equipo a la derecha. La cuarta columna es el trabajo del proyecto.
  */
+/*
+ * Tres columnas: los agentes a los lados y el orquestador con su chat en medio. El ancho
+ * se reparte en proporciones, no en píxeles fijos, para que los paneles laterales crezcan
+ * con la pantalla en vez de quedarse en una tira estrecha.
+ */
 .cuerpo {
   display: grid;
-  grid-template-columns: 260px minmax(360px, 1fr) 260px 320px;
-  gap: 12px;
-  padding: 12px 16px 16px;
+  grid-template-columns: minmax(300px, 1fr) minmax(420px, 1.5fr) minmax(300px, 1fr);
+  gap: 14px;
+  padding: 14px 16px 16px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 .columna-equipo,
-.columna-centro,
-.columna-trabajo {
+.columna-centro {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
 }
 
-.columna-equipo {
-  overflow-y: auto;
-}
-
-.columna-trabajo {
-  overflow-y: auto;
-  padding-right: 4px;
+/*
+ * Los paneles se reparten el alto de su columna. Poner aquí un desplazamiento propio haría
+ * que los paneles se quedaran en su altura mínima y dejaran hueco vacío debajo: cada panel
+ * ya se desplaza por dentro.
+ */
+.columna-equipo > .agente-panel {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .avisos {
@@ -210,96 +215,6 @@ button {
 
 .avisos:empty {
   display: none;
-}
-
-/* ------------------------------------------------------------------ */
-/* Recorrido del trabajo                                               */
-/* ------------------------------------------------------------------ */
-
-.recorrido {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--borde);
-  background: var(--superficie-2);
-  overflow-x: auto;
-}
-
-.recorrido .origen {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--texto-suave);
-  white-space: nowrap;
-  padding-right: 4px;
-}
-
-.recorrido .paso {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--borde);
-  background: var(--superficie);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12.5px;
-  white-space: nowrap;
-  color: var(--texto-suave);
-  position: relative;
-  margin-left: 12px;
-}
-
-/* La flecha que une un paso con el siguiente. */
-.recorrido .paso::before {
-  content: '→';
-  position: absolute;
-  left: -14px;
-  color: var(--texto-tenue);
-  font-size: 12px;
-}
-
-.recorrido .paso:hover {
-  background: var(--superficie-hover);
-}
-
-.recorrido .paso.con-trabajo {
-  color: var(--texto);
-  border-color: var(--borde-fuerte);
-  font-weight: 600;
-}
-
-.recorrido .paso.seleccionado {
-  border-color: var(--acento);
-  box-shadow: 0 0 0 1px var(--acento);
-  color: var(--texto);
-}
-
-.recorrido .paso.atascado {
-  border-color: var(--blocked);
-  color: var(--blocked);
-}
-
-.recorrido .paso .cuenta {
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--superficie-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.recorrido .paso.con-trabajo .cuenta {
-  background: var(--acento-suave);
-  color: var(--acento-texto);
-}
-
-.recorrido .paso.atascado .cuenta {
-  background: var(--blocked-fondo);
-  color: var(--blocked);
 }
 
 /* ------------------------------------------------------------------ */
@@ -324,9 +239,32 @@ button {
   max-height: 220px;
 }
 
-.agente-panel.activo {
-  border-color: var(--progress);
-}
+/* Cada rol lleva su color en el borde, en su cabecera y en su indicador. */
+.agente-panel[data-rol='orquestador'] { border-color: var(--rol-orquestador-suave); }
+.agente-panel[data-rol='builder'] { border-color: var(--rol-builder-suave); }
+.agente-panel[data-rol='reviewer'] { border-color: var(--rol-reviewer-suave); }
+.agente-panel[data-rol='investigador'] { border-color: var(--rol-investigador-suave); }
+
+.agente-panel[data-rol='orquestador'] > header { background: var(--rol-orquestador-suave); }
+.agente-panel[data-rol='builder'] > header { background: var(--rol-builder-suave); }
+.agente-panel[data-rol='reviewer'] > header { background: var(--rol-reviewer-suave); }
+.agente-panel[data-rol='investigador'] > header { background: var(--rol-investigador-suave); }
+
+.agente-panel[data-rol='orquestador'] .indicador.latiendo { background: var(--rol-orquestador); }
+.agente-panel[data-rol='builder'] .indicador.latiendo { background: var(--rol-builder); }
+.agente-panel[data-rol='reviewer'] .indicador.latiendo { background: var(--rol-reviewer); }
+.agente-panel[data-rol='investigador'] .indicador.latiendo { background: var(--rol-investigador); }
+
+.agente-panel[data-rol='orquestador'] .situacion.trabajando { color: var(--rol-orquestador); }
+.agente-panel[data-rol='builder'] .situacion.trabajando { color: var(--rol-builder); }
+.agente-panel[data-rol='reviewer'] .situacion.trabajando { color: var(--rol-reviewer); }
+.agente-panel[data-rol='investigador'] .situacion.trabajando { color: var(--rol-investigador); }
+
+/* Trabajando, el panel se marca con su propio color. */
+.agente-panel.activo[data-rol='orquestador'] { border-color: var(--rol-orquestador); }
+.agente-panel.activo[data-rol='builder'] { border-color: var(--rol-builder); }
+.agente-panel.activo[data-rol='reviewer'] { border-color: var(--rol-reviewer); }
+.agente-panel.activo[data-rol='investigador'] { border-color: var(--rol-investigador); }
 
 .agente-panel > header {
   display: flex;
@@ -431,32 +369,45 @@ button {
   font-size: 12px;
 }
 
+/*
+ * Cada paso ocupa dos líneas: arriba la hora y la herramienta, abajo lo que hizo. En una
+ * sola línea, un texto medianamente largo se partía en columnas de dos palabras y dejaba
+ * de leerse.
+ */
 .paso-agente {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 6px;
   color: var(--texto-suave);
-  word-break: break-word;
+  padding-bottom: 3px;
 }
 
 .paso-agente .hora {
   color: var(--texto-tenue);
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  grid-column: 1;
 }
 
 .paso-agente .herramienta {
-  color: var(--acento-texto);
-  background: var(--acento-suave);
+  color: var(--texto);
+  background: var(--superficie-2);
+  border: 1px solid var(--borde);
   border-radius: 3px;
   padding: 0 4px;
-  flex-shrink: 0;
-  font-size: 10.5px;
+  grid-column: 2;
+  justify-self: start;
+  font-size: 10px;
 }
 
 .paso-agente .texto {
+  grid-column: 1 / -1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  color: var(--texto);
+  /* Texto normal, no monoespaciado: se lee mucho mejor en un panel estrecho. */
+  font-family: var(--fuente);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .paso-agente.con-error .texto {
@@ -1276,14 +1227,10 @@ details > summary {
 }
 
 @media (max-width: 1280px) {
-  /* Sin sitio para cuatro columnas: el trabajo se apila bajo el chat. */
   .cuerpo {
-    grid-template-columns: 240px minmax(320px, 1fr) 240px;
-  }
-
-  .columna-trabajo {
-    grid-column: 1 / -1;
-    max-height: 320px;
+    grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.4fr) minmax(260px, 1fr);
+    gap: 10px;
+    padding: 10px 12px 12px;
   }
 }
 
@@ -1296,31 +1243,30 @@ details > summary {
   }
 
   .columna-equipo,
-  .columna-centro,
-  .columna-trabajo {
+  .columna-centro {
     display: none;
-    max-height: none;
-    grid-column: auto;
   }
 
   /* En pantalla estrecha se ve una sección cada vez. */
   .cuerpo[data-seccion='pedir'] .columna-centro,
-  .cuerpo[data-seccion='equipo'] .columna-equipo,
-  .cuerpo[data-seccion='trabajo'] .columna-trabajo {
+  .cuerpo[data-seccion='equipo'] .columna-equipo {
     display: flex;
+  }
+
+  /* Apilados, cada panel guarda su altura en vez de repartirse la pantalla. */
+  .columna-equipo > .agente-panel {
+    flex: 0 0 auto;
+    min-height: 240px;
   }
 
   .nav-movil {
     display: flex;
   }
 
-  .detalle {
+  .detalle,
+  .cajon {
     width: 100%;
     border-left: 0;
-  }
-
-  .agente-panel {
-    min-height: 200px;
   }
 
   .cabecera .ubicacion .ruta {
@@ -1328,34 +1274,6 @@ details > summary {
   }
 }
 
-.columna-lateral {
-    display: none;
-  }
-
-  .cuerpo[data-seccion='chat'] .columna-principal {
-    display: none;
-  }
-
-  .cuerpo[data-seccion='chat'] .columna-lateral {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  .nav-movil {
-    display: flex;
-  }
-
-  .detalle {
-    width: 100%;
-    border-left: 0;
-  }
-
-  .cabecera .objetivo {
-    order: 3;
-    width: 100%;
-    white-space: normal;
-  }
 }
 /* ------------------------------------------------------------------ */
 /* Cajón del trabajo                                                   */

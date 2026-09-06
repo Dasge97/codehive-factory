@@ -3,6 +3,20 @@ import type { AgentView, SystemEvent, Task } from '../api';
 import { hora } from './Estado';
 
 /**
+ * Recorta un texto a lo que cabe en el panel, sin cortar a mitad de palabra si se puede.
+ *
+ * Los agentes escriben resúmenes largos y el panel es estrecho. El texto entero está en
+ * la tarea; aquí basta con saber qué hizo.
+ */
+function recortar(texto: string, maximo: number): string {
+  const limpio = texto.replace(/s+/g, ' ').trim();
+  if (limpio.length <= maximo) return limpio;
+
+  const corte = limpio.lastIndexOf(' ', maximo);
+  return `${limpio.slice(0, corte > maximo * 0.6 ? corte : maximo)}…`;
+}
+
+/**
  * Color de cada rol.
  *
  * Cada agente tiene el suyo para poder distinguirlos de un vistazo cuando hay varios
@@ -72,7 +86,8 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
 
   if (evento.type === 'run.finished') {
     const estado = String(datos['status'] ?? '');
-    const resumen = String(datos['summary'] ?? datos['error'] ?? '');
+    // El resumen entero se lee en la tarea; aquí solo cabe su primera frase.
+    const resumen = recortar(String(datos['summary'] ?? datos['error'] ?? ''), 160);
     return {
       ...base,
       texto: estado === 'succeeded' ? `Termina: ${resumen}` : `Termina con ${estado}: ${resumen}`,
@@ -82,7 +97,7 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
   }
 
   if (evento.type === 'run.progress') {
-    const texto = String(datos['text'] ?? '').trim();
+    const texto = recortar(String(datos['text'] ?? ''), 220);
     if (!texto) return null;
     return {
       ...base,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Texto } from './Texto';
-import { PanelAgente } from './PanelAgente';
+import { PanelAgente, pasosPorAgente } from './PanelAgente';
 import type { AgentView } from '../api';
 
 describe('texto de los agentes', () => {
@@ -85,6 +85,25 @@ describe('color de cada agente', () => {
       expect(container.querySelector('.agente-panel')?.getAttribute('data-rol')).toBe(color);
       unmount();
     }
+  });
+
+  it('el resumen final de una ejecución se recorta al panel', () => {
+    const pasos = pasosPorAgente([
+      {
+        id: 1,
+        project_id: 'prj_1',
+        type: 'run.finished',
+        task_id: 'tsk_1',
+        run_id: 'run_1',
+        agent_id: 'agt_1',
+        payload: JSON.stringify({ status: 'succeeded', summary: 'Una frase larga. '.repeat(60) }),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    // El resumen entero se lee en la tarea, no en el panel.
+    expect(pasos.get('agt_1')![0]!.texto.length).toBeLessThan(200);
+    expect(pasos.get('agt_1')![0]!.texto.endsWith('…')).toBe(true);
   });
 
   it('el texto de un paso se puede leer entero, no recortado a una línea', () => {

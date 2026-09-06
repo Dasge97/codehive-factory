@@ -38,6 +38,19 @@ describe('descripción del uso de una herramienta', () => {
     );
   });
 
+  it('la entrega del resultado no vuelca el resumen entero', () => {
+    const texto = describirUsoDeHerramienta('StructuredOutput', {
+      outcome: 'completed',
+      summary: '## Puntos del código\n'.repeat(200),
+    });
+    expect(texto).toBe('entrega su resultado');
+  });
+
+  it('ninguna descripción pasa de lo que cabe en el panel', () => {
+    const largo = describirUsoDeHerramienta('HerramientaRara', { dato: 'x'.repeat(119) });
+    expect(largo.length).toBeLessThanOrEqual(141);
+  });
+
   it('nunca devuelve el objeto entero de argumentos', () => {
     const texto = describirUsoDeHerramienta('Write', {
       file_path: 'src/a.ts',
