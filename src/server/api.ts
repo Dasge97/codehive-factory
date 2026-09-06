@@ -145,6 +145,12 @@ export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Ex
     res.json(setProjectStatus(db, param(req, 'id'), pausar ? 'paused' : 'active'));
   });
 
+  app.post('/api/projects/:id/orchestrator/stop', (_req, res) => {
+    // Pedir la parada no significa que ya esté parado: el motor tarda en cerrarse, y la
+    // web enseña la parada como solicitada hasta que llega la confirmación.
+    res.json({ requested: true, running: supervisor.stopOrchestrator() });
+  });
+
   app.get('/api/projects/:id/chat', (req, res) => {
     res.json(listChat(db, req.params.id));
   });

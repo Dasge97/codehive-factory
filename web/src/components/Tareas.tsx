@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AgentView, Task, TaskStatus } from '../api';
 import { ESTADOS, Estado, Latido } from './Estado';
 
@@ -65,10 +66,29 @@ interface ListaProps {
   agentes: AgentView[];
   agenteSeleccionado: string | null;
   alAbrir: (taskId: string) => void;
+  /** Paso del recorrido por el que se está filtrando, si hay alguno. */
+  filtro?: { paso: string; alQuitar: () => void } | null;
+  accionExtra?: ReactNode;
 }
 
+/** Nombre en palabras de cada paso del recorrido, para explicar el filtro activo. */
+const NOMBRE_PASO: Record<string, string> = {
+  reparte: 'que el orquestador está repartiendo',
+  construye: 'que se están construyendo',
+  revisa: 'que se están revisando',
+  integras: 'que esperan a que las integres',
+  atascado: 'que están atascadas',
+};
+
 /** Trabajo del proyecto, ordenado por lo que más atención necesita. */
-export function TrabajoDelProyecto({ tareas, agentes, agenteSeleccionado, alAbrir }: ListaProps) {
+export function TrabajoDelProyecto({
+  tareas,
+  agentes,
+  agenteSeleccionado,
+  alAbrir,
+  filtro,
+  accionExtra,
+}: ListaProps) {
   const rolDelAgente = agentes.find((a) => a.id === agenteSeleccionado)?.role;
 
   const abiertas = tareas.filter((t) => t.status !== 'cancelled');
@@ -79,12 +99,26 @@ export function TrabajoDelProyecto({ tareas, agentes, agenteSeleccionado, alAbri
   return (
     <section className="panel">
       <header>
-        <h2>Trabajo del proyecto</h2>
-        <span className="contador">{abiertas.length} tareas abiertas</span>
+        <h2>Trabajo</h2>
+        <span className="contador">
+          {filtro ? `${abiertas.length} ${NOMBRE_PASO[filtro.paso] ?? ''}` : `${abiertas.length} tareas abiertas`}
+        </span>
+        <div className="derecha">
+          {filtro && (
+            <button className="boton pequeno" onClick={filtro.alQuitar}>
+              Ver todas
+            </button>
+          )}
+          {accionExtra}
+        </div>
       </header>
 
       {ordenadas.length === 0 ? (
-        <p className="vacio">Todavía no hay ninguna tarea. Pídele algo al orquestador en el chat.</p>
+        <p className="vacio">
+          {filtro
+            ? 'No hay ninguna tarea en este paso ahora mismo.'
+            : 'Todavía no hay ninguna tarea. Pide algo en el chat y el orquestador la creará.'}
+        </p>
       ) : (
         <div className="rejilla-tareas">
           {ordenadas.map((tarea) => (

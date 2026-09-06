@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   useEventos,
   type AgentView,
   type ChatMessage,
-  type EngineUsage,
   type MotoresDisponibles,
   type ProjectOverview,
   type SystemEvent,
@@ -13,13 +12,14 @@ import {
 } from './api';
 import { Actividad } from './components/Actividad';
 import { Ajustes } from './components/Ajustes';
+import { Cabecera } from './components/Cabecera';
 import { Chat } from './components/Chat';
 import { Detalle } from './components/Detalle';
-import { Equipo } from './components/Equipo';
+import { PanelAgente, pasosPorAgente } from './components/PanelAgente';
+import { Recorrido, pasoDeLaTarea, type PasoId } from './components/Recorrido';
 import { Tablero, TrabajoDelProyecto } from './components/Tareas';
 
-type Vista = 'equipo' | 'tablero';
-type SeccionMovil = 'equipo' | 'tareas' | 'chat';
+type SeccionMovil = 'pedir' | 'equipo' | 'trabajo';
 
 export function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -30,14 +30,15 @@ export function App() {
   const [eventos, setEventos] = useState<SystemEvent[]>([]);
   const [detalle, setDetalle] = useState<TaskDetail | null>(null);
   const [motores, setMotores] = useState<MotoresDisponibles | null>(null);
-  const [ajustesAbiertos, setAjustesAbiertos] = useState(false);
 
-  const [vista, setVista] = useState<Vista>('equipo');
-  const [seccion, setSeccion] = useState<SeccionMovil>('equipo');
-  const [agenteSeleccionado, setAgenteSeleccionado] = useState<string | null>(null);
+  const [ajustesAbiertos, setAjustesAbiertos] = useState(false);
+  const [seccion, setSeccion] = useState<SeccionMovil>('pedir');
+  const [paso, setPaso] = useState<PasoId | 'atascado' | null>(null);
+  const [verTablero, setVerTablero] = useState(false);
   // El borrador vive aquí para que no se pierda al cambiar de sección en el móvil.
   const [borrador, setBorrador] = useState('');
   const [tema, setTema] = useState<'sistema' | 'claro' | 'oscuro'>('sistema');
+  const [paradaPedida, setParadaPedida] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const tareaAbierta = useRef<string | null>(null);
@@ -65,7 +66,8 @@ export function App() {
         api.tareas(projectId),
         api.agentes(projectId),
         api.chat(projectId),
-        api.actividad(projectId),
+        // Los pasos de cada agente salen de aquí, así que hace falta bastante historial.
+        api.actividad(projectId, 200),
       ]);
       setResumen(r);
       setTareas(t);
@@ -73,6 +75,7 @@ export function App() {
       setMensajes(c);
       setEventos(ev);
       setError(null);
+      if (!r.orchestrator_busy) setParadaPedida(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -101,13 +104,15 @@ export function App() {
   // ------------------------------------------------------------- eventos
 
   const conexion = useEventos(projectId, (evento) => {
-    setEventos((previos) => [evento, ...previos].slice(0, 200));
+    // Cada evento entra en la lista: es lo que alimenta el panel de cada agente.
+    setEventos((previos) => [evento, ...previos].slice(0, 400));
 
-    // Un evento que cambia el trabajo obliga a volver a pedir lo que se ve. Es más simple
-    // y más fiable que ir aplicando cada cambio a mano sobre lo que ya está en pantalla.
     if (evento.type === 'chat.message') {
       void api.chat(evento.project_id).then(setMensajes).catch(() => undefined);
+      void recargarTodo();
     } else if (evento.type !== 'run.progress') {
+      // Un paso suelto no cambia el estado del trabajo, así que no hace falta volver a
+      // pedirlo todo cada vez: ya se ve en el panel del agente.
       void recargarTodo();
       if (evento.task_id === tareaAbierta.current) void recargarDetalle();
     }
@@ -143,6 +148,28 @@ export function App() {
     setMensajes(await api.chat(projectId));
   }
 
+  // -------------------------------------------------------------- derivados
+
+  const integrables = useMemo(() => resumen?.integrable.map((t) => t.id) ?? [], [resumen]);
+  const pasos = useMemo(() => pasosPorAgente(eventos), [eventos]);
+
+  const tareasDelPaso = useMemo(() => {
+    if (!paso) return tareas;
+    const conjunto = new Set(integrables);
+    return tareas.filter((t) => pasoDeLaTarea(t, conjunto) === paso);
+  }, [tareas, paso, integrables]);
+
+  const orquestador = agentes.find((a) => a.role === 'orchestrator');
+  const equipo = agentes.filter((a) => a.role !== 'orchestrator');
+
+  // El servidor dice si el orquestador tiene un turno en marcha; la web no lo adivina.
+  const orquestadorPensando = resumen?.orchestrator_busy ?? false;
+
+  // Lo último que se le ha visto hacer, para que la espera no sea un texto fijo.
+  const ultimoPasoOrquestador = orquestador
+    ? (pasos.get(orquestador.id)?.at(-1)?.texto ?? null)
+    : null;
+
   // ---------------------------------------------------------------- render
 
   if (error && !resumen) {
@@ -163,145 +190,178 @@ export function App() {
     );
   }
 
-  const bloqueadas = tareas.filter((t) => t.status === 'blocked').length;
   const autorizaciones = resumen.snapshot.pending_approvals;
   const uso = resumen.usage.find((u) => u.engine === 'claude_code');
+  const atascadas = tareas.filter((t) => t.status === 'blocked').length;
 
   return (
     <div className="app">
-      <header className="cabecera">
-        <h1>Code Hive Factory</h1>
-        <span className="objetivo">
-          {resumen.project.name}
-          {resumen.snapshot.goal ? ` · ${resumen.snapshot.goal}` : ' · sin objetivo escrito todavía'}
-        </span>
+      <Cabecera
+        resumen={resumen}
+        agentes={agentes}
+        tema={tema}
+        alCambiarTema={() => setTema(tema === 'oscuro' ? 'claro' : tema === 'claro' ? 'sistema' : 'oscuro')}
+        alAbrirAjustes={() => setAjustesAbiertos(true)}
+      />
 
-        <div className="cabecera-acciones">
-          <Consumo uso={uso} />
+      <Recorrido
+        tareas={tareas}
+        integrables={integrables}
+        pasoSeleccionado={paso}
+        alSeleccionar={(p) => {
+          setPaso(p);
+          setSeccion('trabajo');
+        }}
+      />
 
-          <div className="pestanas">
-            <button aria-pressed={vista === 'equipo'} onClick={() => setVista('equipo')}>
-              Equipo
-            </button>
-            <button aria-pressed={vista === 'tablero'} onClick={() => setVista('tablero')}>
-              Tablero
-            </button>
+      <div className="avisos">
+        {conexion === 'desconectado' && (
+          <div className="aviso desconectado">
+            Sin conexión con el servicio. Lo que ves puede estar desactualizado.
           </div>
+        )}
 
-          <button className="boton pequeno" onClick={() => setAjustesAbiertos(true)}>
-            Ajustes
-          </button>
+        {resumen.project.status === 'paused' && (
+          <div className="aviso desconectado">
+            El proyecto está en pausa. El trabajo en curso termina y no se arranca nada nuevo.
+            <div className="acciones">
+              <button
+                className="boton pequeno"
+                onClick={() => void api.pausarProyecto(resumen.project.id, false).then(recargarTodo)}
+              >
+                Reanudar
+              </button>
+            </div>
+          </div>
+        )}
 
-          <button
-            className="boton pequeno"
-            onClick={() => setTema(tema === 'oscuro' ? 'claro' : tema === 'claro' ? 'sistema' : 'oscuro')}
-            title="Cambiar entre tema claro, oscuro y el del sistema"
-          >
-            {tema === 'sistema' ? 'Tema del sistema' : tema === 'claro' ? 'Tema claro' : 'Tema oscuro'}
-          </button>
-        </div>
-      </header>
+        {autorizaciones.length > 0 && (
+          <div className="aviso">
+            <span>
+              {autorizaciones.length === 1
+                ? 'Un agente necesita tu permiso para seguir.'
+                : `${autorizaciones.length} agentes necesitan tu permiso para seguir.`}
+            </span>
+            <div className="acciones">
+              <button className="boton pequeno" onClick={() => void abrirTarea(autorizaciones[0]!.task_id)}>
+                Ver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {resumen.integrable.length > 0 && (
+          <div className="aviso listo">
+            <span>
+              {resumen.integrable.length === 1
+                ? 'Hay trabajo revisado esperando a que lo integres.'
+                : `Hay ${resumen.integrable.length} trabajos revisados esperando a que los integres.`}
+            </span>
+            <div className="acciones">
+              <button className="boton pequeno" onClick={() => void abrirTarea(resumen.integrable[0]!.id)}>
+                Ver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {uso?.status === 'exhausted' && (
+          <div className="aviso">
+            El motor se ha quedado sin cuota. Las tareas afectadas están en pausa y conservan su estado.
+          </div>
+        )}
+      </div>
 
       <div className="cuerpo" data-seccion={seccion}>
-        <div className="columna-principal">
-          {conexion === 'desconectado' && (
-            <div className="aviso desconectado">
-              Sin conexión con el servicio. Lo que ves puede estar desactualizado.
-            </div>
-          )}
-
-          {autorizaciones.length > 0 && (
-            <div className="aviso">
-              <span>
-                {autorizaciones.length === 1
-                  ? 'Un agente necesita tu permiso para seguir.'
-                  : `${autorizaciones.length} agentes necesitan tu permiso para seguir.`}
-              </span>
-              <div className="acciones">
-                <button className="boton pequeno" onClick={() => void abrirTarea(autorizaciones[0]!.task_id)}>
-                  Ver
-                </button>
-              </div>
-            </div>
-          )}
-
-          {resumen.project.status === 'paused' && (
-            <div className="aviso desconectado">
-              El proyecto está en pausa. El trabajo en curso termina y no se arranca nada nuevo.
-              <div className="acciones">
-                <button
-                  className="boton pequeno"
-                  onClick={() => void api.pausarProyecto(resumen.project.id, false).then(recargarTodo)}
-                >
-                  Reanudar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {uso?.status === 'exhausted' && (
-            <div className="aviso">
-              El motor se ha quedado sin cuota. Las tareas afectadas están en pausa y conservan su estado.
-            </div>
-          )}
-
-          {vista === 'equipo' ? (
-            <>
-              <Equipo
-                agentes={agentes}
-                tareas={tareas}
-                seleccionado={agenteSeleccionado}
-                alSeleccionar={setAgenteSeleccionado}
-              />
-              <TrabajoDelProyecto
-                tareas={tareas}
-                agentes={agentes}
-                agenteSeleccionado={agenteSeleccionado}
-                alAbrir={(id) => void abrirTarea(id)}
-              />
-              <Actividad eventos={eventos} alAbrirTarea={(id) => void abrirTarea(id)} />
-            </>
-          ) : (
-            <Tablero tareas={tareas} alAbrir={(id) => void abrirTarea(id)} />
-          )}
+        <div className="columna-equipo izquierda">
+          {equipo.slice(0, 2).map((agente) => (
+            <PanelAgente
+              key={agente.id}
+              agente={agente}
+              tareas={tareas}
+              pasos={pasos.get(agente.id) ?? []}
+              alAbrirTarea={(id) => void abrirTarea(id)}
+            />
+          ))}
         </div>
 
-        <div className="columna-lateral">
+        <div className="columna-centro">
           <Chat
             mensajes={mensajes}
             alEnviar={enviarMensaje}
             borrador={borrador}
             alCambiarBorrador={setBorrador}
+            proyecto={resumen.project}
+            pensando={orquestadorPensando}
+            ultimoPaso={ultimoPasoOrquestador}
+            paradaPedida={paradaPedida}
+            alParar={() => {
+              setParadaPedida(true);
+              void api.pararOrquestador(resumen.project.id).catch(() => setParadaPedida(false));
+            }}
           />
+
+          {orquestador && (pasos.get(orquestador.id)?.length ?? 0) > 0 && (
+            <PanelAgente
+              agente={orquestador}
+              tareas={tareas}
+              pasos={pasos.get(orquestador.id) ?? []}
+              alAbrirTarea={(id) => void abrirTarea(id)}
+              compacto
+            />
+          )}
+        </div>
+
+        <div className="columna-equipo derecha">
+          {equipo.slice(2).map((agente) => (
+            <PanelAgente
+              key={agente.id}
+              agente={agente}
+              tareas={tareas}
+              pasos={pasos.get(agente.id) ?? []}
+              alAbrirTarea={(id) => void abrirTarea(id)}
+            />
+          ))}
+        </div>
+
+        <div className="columna-trabajo">
+          {verTablero ? (
+            <>
+              <Tablero tareas={tareas} alAbrir={(id) => void abrirTarea(id)} />
+              <button className="boton pequeno" onClick={() => setVerTablero(false)}>
+                Volver a la lista
+              </button>
+            </>
+          ) : (
+            <TrabajoDelProyecto
+              tareas={tareasDelPaso}
+              agentes={agentes}
+              agenteSeleccionado={null}
+              alAbrir={(id) => void abrirTarea(id)}
+              filtro={paso ? { paso, alQuitar: () => setPaso(null) } : null}
+              accionExtra={
+                <button className="boton pequeno" onClick={() => setVerTablero(true)}>
+                  Ver por estados
+                </button>
+              }
+            />
+          )}
+
+          <Actividad eventos={eventos} alAbrirTarea={(id) => void abrirTarea(id)} />
         </div>
       </div>
 
       <nav className="nav-movil">
-        <button
-          aria-current={seccion === 'equipo' ? 'page' : undefined}
-          onClick={() => {
-            setSeccion('equipo');
-            setVista('equipo');
-          }}
-        >
+        <button aria-current={seccion === 'pedir' ? 'page' : undefined} onClick={() => setSeccion('pedir')}>
+          Pedir
+          {autorizaciones.length > 0 && <span className="senal" title="Hay algo que decidir" />}
+        </button>
+        <button aria-current={seccion === 'equipo' ? 'page' : undefined} onClick={() => setSeccion('equipo')}>
           Equipo
         </button>
-        <button
-          aria-current={seccion === 'tareas' ? 'page' : undefined}
-          onClick={() => {
-            setSeccion('tareas');
-            setVista('tablero');
-          }}
-        >
-          Tareas
-          {bloqueadas > 0 && <span className="senal" title={`${bloqueadas} tareas bloqueadas`} />}
-        </button>
-        <button
-          aria-current={seccion === 'chat' ? 'page' : undefined}
-          onClick={() => setSeccion('chat')}
-        >
-          Chat
-          {autorizaciones.length > 0 && <span className="senal" title="Hay algo que decidir" />}
+        <button aria-current={seccion === 'trabajo' ? 'page' : undefined} onClick={() => setSeccion('trabajo')}>
+          Trabajo
+          {atascadas > 0 && <span className="senal" title={`${atascadas} tareas atascadas`} />}
         </button>
       </nav>
 
@@ -327,30 +387,6 @@ export function App() {
           alAbrirTarea={(id) => void abrirTarea(id)}
         />
       )}
-    </div>
-  );
-}
-
-/**
- * Consumo de la suscripción.
- *
- * La cifra viene del motor. Si el motor no la ha publicado todavía, no se muestra nada en
- * lugar de inventar un número.
- */
-function Consumo({ uso }: { uso: EngineUsage | undefined }) {
-  if (!uso || uso.five_hour_util === null) return null;
-
-  const porcentaje = Math.round(uso.five_hour_util * 100);
-  const reinicio = uso.five_hour_resets
-    ? new Date(uso.five_hour_resets).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    : null;
-
-  return (
-    <div className="consumo" title={`Consumo de la suscripción${reinicio ? `. Se reinicia a las ${reinicio}` : ''}`}>
-      <span>Cuota {porcentaje}%</span>
-      <span className="barra-consumo">
-        <span style={{ width: `${Math.min(100, porcentaje)}%` }} />
-      </span>
     </div>
   );
 }

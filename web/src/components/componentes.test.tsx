@@ -55,6 +55,13 @@ function agente(extra: Partial<AgentView> = {}): AgentView {
   };
 }
 
+/** Proyecto sobre el que trabaja el equipo en las pruebas. */
+const PROYECTO_DE_PRUEBA = {
+  name: 'Code Hive Factory',
+  repo_path: String.raw`C:\AreaDeTrabajo\codehive-factory`,
+  main_branch: 'main',
+};
+
 // ---------------------------------------------------------------------------
 
 describe('distintivo de estado', () => {
@@ -171,11 +178,28 @@ describe('trabajo del proyecto', () => {
     expect(titulos).toEqual(['Bloqueada', 'Lista', 'Hecha']);
   });
 
-  it('sin tareas invita a hablar con el orquestador', () => {
+  it('sin tareas invita a pedir algo en el chat', () => {
     render(
       <TrabajoDelProyecto tareas={[]} agentes={[]} agenteSeleccionado={null} alAbrir={() => undefined} />,
     );
-    expect(screen.getByText(/Pídele algo al orquestador/)).toBeDefined();
+    expect(screen.getByText(/Pide algo en el chat/)).toBeDefined();
+  });
+
+  it('filtrar por un paso explica qué se está viendo y deja quitarlo', async () => {
+    const alQuitar = vi.fn();
+    render(
+      <TrabajoDelProyecto
+        tareas={[tarea({ status: 'in_progress' })]}
+        agentes={[]}
+        agenteSeleccionado={null}
+        alAbrir={() => undefined}
+        filtro={{ paso: 'construye', alQuitar }}
+      />,
+    );
+
+    expect(screen.getByText(/que se están construyendo/)).toBeDefined();
+    await userEvent.click(screen.getByRole('button', { name: 'Ver todas' }));
+    expect(alQuitar).toHaveBeenCalled();
   });
 
   it('al elegir un agente se atenúan las tareas de otros roles', () => {
@@ -227,7 +251,7 @@ describe('chat con el orquestador', () => {
 
   it('distingue quién dijo cada cosa', () => {
     const { container } = render(
-      <Chat mensajes={mensajes} alEnviar={async () => undefined} borrador="" alCambiarBorrador={() => undefined} />,
+      <Chat mensajes={mensajes} alEnviar={async () => undefined} borrador="" alCambiarBorrador={() => undefined} proyecto={PROYECTO_DE_PRUEBA} />,
     );
 
     expect(container.querySelector('.mensaje.del-creador')?.textContent).toContain('Añade un área de proyectos');
@@ -237,7 +261,7 @@ describe('chat con el orquestador', () => {
   it('el borrador vive fuera, para que no se pierda al cambiar de vista', async () => {
     const alCambiarBorrador = vi.fn();
     render(
-      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="" alCambiarBorrador={alCambiarBorrador} />,
+      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="" alCambiarBorrador={alCambiarBorrador} proyecto={PROYECTO_DE_PRUEBA} />,
     );
 
     await userEvent.type(screen.getByLabelText('Mensaje para el orquestador'), 'hola');
@@ -246,7 +270,7 @@ describe('chat con el orquestador', () => {
 
   it('no se puede enviar un mensaje vacío', () => {
     render(
-      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="   " alCambiarBorrador={() => undefined} />,
+      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="   " alCambiarBorrador={() => undefined} proyecto={PROYECTO_DE_PRUEBA} />,
     );
     expect(screen.getByRole('button', { name: 'Enviar' })).toHaveProperty('disabled', true);
   });
@@ -254,18 +278,19 @@ describe('chat con el orquestador', () => {
   it('envía el mensaje al pulsar el botón', async () => {
     const alEnviar = vi.fn(async () => undefined);
     render(
-      <Chat mensajes={[]} alEnviar={alEnviar} borrador="Añade el filtro" alCambiarBorrador={() => undefined} />,
+      <Chat mensajes={[]} alEnviar={alEnviar} borrador="Añade el filtro" alCambiarBorrador={() => undefined} proyecto={PROYECTO_DE_PRUEBA} />,
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Enviar' }));
     expect(alEnviar).toHaveBeenCalledWith('Añade el filtro');
   });
 
-  it('sin mensajes explica para qué sirve', () => {
+  it('antes del primer mensaje dice dónde se va a trabajar', () => {
     render(
-      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="" alCambiarBorrador={() => undefined} />,
+      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="" alCambiarBorrador={() => undefined} proyecto={PROYECTO_DE_PRUEBA} />,
     );
-    expect(screen.getByText(/reparte el trabajo entre el equipo/)).toBeDefined();
+    expect(screen.getByText(PROYECTO_DE_PRUEBA.repo_path)).toBeDefined();
+    expect(screen.getByText(/Nada llega a la rama main sin que tú lo confirmes/)).toBeDefined();
   });
 });
 

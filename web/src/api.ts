@@ -161,6 +161,8 @@ export interface ProjectOverview {
   integrable: Array<{ id: string; title: string; branch: string; commit: string }>;
   usage: EngineUsage[];
   active_work: Array<{ task_id: string; run_id: string; agent_id: string; role: AgentRole }>;
+  /** El orquestador tiene un turno en marcha ahora mismo. */
+  orchestrator_busy: boolean;
 }
 
 export interface TaskDetail {
@@ -222,6 +224,11 @@ export const api = {
     pedir<Approval>(`/approvals/${id}`, { method: 'POST', body: JSON.stringify({ granted }) }),
 
   motores: () => pedir<MotoresDisponibles>('/engines'),
+
+  pararOrquestador: (id: string) =>
+    pedir<{ requested: boolean; running: boolean }>(`/projects/${id}/orchestrator/stop`, {
+      method: 'POST',
+    }),
 
   pausarProyecto: (id: string, paused: boolean) =>
     pedir<{ status: string }>(`/projects/${id}/pause`, { method: 'POST', body: JSON.stringify({ paused }) }),

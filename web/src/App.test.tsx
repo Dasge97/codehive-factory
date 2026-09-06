@@ -16,6 +16,7 @@ let consumo: Array<Record<string, unknown>>;
 let estadoProyecto: string;
 let motoresInstalados: Array<Record<string, unknown>>;
 let motoresAusentes: Array<Record<string, unknown>>;
+let orquestadorTrabajando: boolean;
 let peticiones: Array<{ metodo: string; ruta: string; cuerpo: unknown }>;
 
 /** Escuchadores del canal de eventos, para poder empujar eventos desde una prueba. */
@@ -66,6 +67,7 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
       integrable: [],
       usage: consumo,
       active_work: [],
+      orchestrator_busy: orquestadorTrabajando,
     });
   }
 
@@ -106,6 +108,11 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
   }
 
   if (ruta.startsWith('/api/agents/')) return respuesta({ ok: true });
+
+  if (ruta.endsWith('/orchestrator/stop')) {
+    orquestadorTrabajando = false;
+    return respuesta({ requested: true, running: true });
+  }
 
   if (ruta.startsWith('/api/tasks/')) {
     const id = ruta.split('/')[3]!;
@@ -171,6 +178,7 @@ beforeEach(() => {
     },
   ];
   motoresAusentes = [];
+  orquestadorTrabajando = false;
   mensajes = [
     { id: 'm1', author: 'creator', body: 'Añade la validación de nombres', created_at: new Date().toISOString() },
     { id: 'm2', author: 'orchestrator', body: 'De acuerdo, se la paso al builder.', created_at: new Date().toISOString() },
@@ -235,15 +243,47 @@ function esperarTarea(titulo: string) {
 // ---------------------------------------------------------------------------
 
 describe('pantalla principal', () => {
-  it('muestra el proyecto, su objetivo y el equipo', async () => {
+  it('dice en qué carpeta y en qué rama trabaja el equipo', async () => {
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(/Code Hive Factory · Tener el área de proyectos/)).toBeDefined());
-    expect(screen.getByRole('heading', { name: 'Code Hive Factory', level: 1 })).toBeDefined();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Code Hive Factory', level: 1 })).toBeDefined(),
+    );
 
-    // Los dos agentes, con su motor.
-    expect(screen.getByText(/Construcción · claude_code/)).toBeDefined();
+    // Sin esto, no se sabe dónde va a hacer el equipo lo que le pidas.
+    expect(screen.getByText('/proyecto')).toBeDefined();
+    expect(screen.getByText('rama main')).toBeDefined();
+  });
+
+  it('cada agente tiene su panel, con su rol y su motor', async () => {
+    render(<App />);
+
+    // Los agentes que no son el orquestador se ven siempre, uno por panel.
+    await waitFor(() => expect(screen.getByText(/Construcción · claude_code/)).toBeDefined());
     expect(screen.getByText(/Revisión · codex/)).toBeDefined();
+  });
+
+  it('el recorrido del trabajo se ve de un vistazo', async () => {
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('Tú pides')).toBeDefined());
+    expect(screen.getByRole('button', { name: /Se reparte/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Se construye/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Se revisa/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Tú integras/ })).toBeDefined();
+  });
+
+  it('filtrar por un paso del recorrido deja solo esas tareas', async () => {
+    render(<App />);
+    await esperarTarea('Validación de nombres');
+
+    // La tarea bloqueada es la única atascada.
+    await userEvent.click(screen.getByRole('button', { name: /Atascado/ }));
+
+    await waitFor(() => {
+      const titulos = [...document.querySelectorAll('.rejilla-tareas .titulo')].map((t) => t.textContent);
+      expect(titulos).toEqual(['Pantalla de listado']);
+    });
   });
 
   it('las tareas bloqueadas salen antes y dicen su motivo', async () => {
@@ -366,7 +406,7 @@ describe('vista de tablero', () => {
     render(<App />);
     await esperarTarea('Validación de nombres');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Tablero' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ver por estados' }));
 
     await waitFor(() => expect(screen.getByText('Tablero por estados')).toBeDefined());
     // El chat sigue ahí, con su conversación.
@@ -483,5 +523,35 @@ describe('ajustes', () => {
       const envio = peticiones.find((p) => p.metodo === 'POST' && p.ruta.endsWith('/workers'));
       expect((envio!.cuerpo as { max_workers: number }).max_workers).toBe(3);
     });
+  });
+});
+
+describe('esperar al orquestador', () => {
+  it('mientras trabaja se ve que hay que esperar, y se puede parar', async () => {
+    orquestadorTrabajando = true;
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Parar' })).toBeDefined());
+
+    // Una animación acompaña la espera: sin ella, esperar y estar parado se ven igual.
+    expect(document.querySelector('.girando')).not.toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Parar' }));
+
+    await waitFor(() => {
+      const envio = peticiones.find((p) => p.ruta.endsWith('/orchestrator/stop'));
+      expect(envio).toBeDefined();
+    });
+
+    // Pedir la parada no es lo mismo que estar parado, y la web lo dice así.
+    await waitFor(() => expect(screen.getByText(/Parada pedida/)).toBeDefined());
+  });
+
+  it('cuando no trabaja no hay ni espera ni botón de parar', async () => {
+    render(<App />);
+    await esperarTarea('Validación de nombres');
+
+    expect(screen.queryByRole('button', { name: 'Parar' })).toBeNull();
+    expect(document.querySelector('.girando')).toBeNull();
   });
 });

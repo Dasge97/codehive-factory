@@ -50,6 +50,7 @@ export class Supervisor {
   private temporizador: NodeJS.Timeout | null = null;
   private turnoOrquestadorPendiente = false;
   private turnoOrquestador: Promise<void> | null = null;
+  private handleOrquestador: EngineHandle | null = null;
   private renovacion: NodeJS.Timeout | null = null;
   private parando = false;
 
@@ -125,6 +126,7 @@ export class Supervisor {
       this.renovacion = null;
     }
 
+    this.handleOrquestador?.stop();
     for (const trabajo of this.activos.values()) {
       trabajo.handle?.stop();
     }
@@ -143,6 +145,23 @@ export class Supervisor {
   /** Qué está haciendo ahora mismo cada worker. */
   activeWork(): TrabajoActivo[] {
     return [...this.activos.values()];
+  }
+
+  /** 
+   * Para el turno del orquestador si lo hay.
+   *
+   * Pedir la parada no significa que ya esté parado: el motor tarda en cerrarse, y hasta
+   * que confirma, la web dice que la parada está solicitada.
+   */
+  stopOrchestrator(): boolean {
+    if (!this.handleOrquestador) return false;
+    this.handleOrquestador.stop();
+    return true;
+  }
+
+  /** Verdadero mientras el orquestador tiene un turno en marcha. */
+  orchestratorBusy(): boolean {
+    return this.turnoOrquestador !== null;
   }
 
   /** Detiene una ejecución concreta. */
@@ -279,6 +298,13 @@ export class Supervisor {
       const ultimo = [...snapshot.chat].reverse().find((m) => m.author === 'creator');
       const prompt = renderOrchestratorPrompt(snapshot, ultimo?.body ?? 'Revisa el estado y decide qué hace falta.');
 
+      appendEvent(this.db, this.bus, {
+        project_id: this.projectId,
+        type: 'run.started',
+        agent_id: agent.id,
+        payload: { role: 'orchestrator', engine: this.motorDe(agent).name },
+      });
+
       const handle = this.motorDe(agent).start({
         prompt,
         cwd: requireProject(this.db, this.projectId).repo_path,
@@ -289,9 +315,37 @@ export class Supervisor {
         resultSchema: ORCHESTRATOR_PLAN_JSON_SCHEMA,
         systemPromptAppend: agent.instructions,
         permissionMode: 'manual',
+      },
+      // El orquestador publica lo que va haciendo, igual que los demás agentes. Sin esto,
+      // el creador solo ve un mensaje fijo mientras espera.
+      (progreso) => {
+        appendEvent(this.db, this.bus, {
+          project_id: this.projectId,
+          type: 'run.progress',
+          agent_id: agent.id,
+          payload: {
+            kind: progreso.kind,
+            tool: progreso.tool ?? null,
+            text: progreso.text,
+            is_error: progreso.isError ?? false,
+          },
+        });
       });
 
+      this.handleOrquestador = handle;
       const outcome = await handle.wait();
+      this.handleOrquestador = null;
+
+      if (outcome.status === 'cancelled') {
+        postChatMessage(
+          this.db,
+          this.bus,
+          this.projectId,
+          'orchestrator',
+          'He parado a mitad, así que no he creado ninguna tarea. Dime qué quieres cambiar.',
+        );
+        return;
+      }
 
       if (outcome.status !== 'succeeded' || !outcome.resultText) {
         postChatMessage(
@@ -317,6 +371,18 @@ export class Supervisor {
       }
 
       const resultado = applyPlan(this.db, this.bus, this.projectId, validado.data);
+
+      appendEvent(this.db, this.bus, {
+        project_id: this.projectId,
+        type: 'run.finished',
+        agent_id: agent.id,
+        payload: {
+          status: 'succeeded',
+          summary: resultado.created_tasks.length > 0
+            ? `Ha repartido ${resultado.created_tasks.length} tareas.`
+            : 'Ha respondido sin crear tareas.',
+        },
+      });
 
       if (resultado.errors.length > 0) {
         postChatMessage(
