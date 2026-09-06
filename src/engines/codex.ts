@@ -43,17 +43,17 @@ export function resolveCodexPath(): string | null {
   return null;
 }
 
-/** Traduce el modo de permisos del sistema al modo de aislamiento de Codex. */
-function sandboxPara(modo: EngineRunRequest['permissionMode']): string {
-  switch (modo) {
-    case 'bypassPermissions':
-    case 'acceptEdits':
-    case 'auto':
-    case 'dontAsk':
-      return 'workspace-write';
-    default:
-      return 'read-only';
-  }
+/**
+ * Decide si el agente necesita poder ejecutar órdenes.
+ *
+ * En Windows, el aislamiento propio de Codex rechaza el lanzamiento de PowerShell, así que
+ * con cualquiera de sus modos de sandbox el agente no puede ejecutar nada: ni consultar el
+ * historial de Git ni lanzar las pruebas. Un reviewer que no puede mirar el commit ni
+ * ejecutar las verificaciones no sirve de nada, así que se ejecuta fuera de ese sandbox
+ * (decisión D38). El aislamiento real lo da el worktree, igual que con Claude Code.
+ */
+function necesitaEjecutarOrdenes(modo: EngineRunRequest['permissionMode']): boolean {
+  return modo !== 'plan';
 }
 
 export class CodexEngine implements Engine {
@@ -106,11 +106,15 @@ export class CodexEngine implements Engine {
       // del agente. En la comprobación de la fase 0, el agente guardó datos en una memoria
       // persistente ajena al proyecto.
       '--ignore-user-config',
-      '-s', sandboxPara(request.permissionMode),
-      // Nadie puede responder a una petición de aprobación, así que no se piden.
-      '-c', 'approval_policy="never"',
       '--output-last-message', rutaResultado,
     ];
+
+    if (necesitaEjecutarOrdenes(request.permissionMode)) {
+      // Fuera del sandbox de Codex, que en Windows impide ejecutar cualquier orden.
+      args.push('--dangerously-bypass-approvals-and-sandbox');
+    } else {
+      args.push('-s', 'read-only', '-c', 'approval_policy="never"');
+    }
 
     if (request.model) args.push('-m', request.model);
     if (rutaEsquema) args.push('--output-schema', rutaEsquema);

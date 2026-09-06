@@ -36,6 +36,9 @@ export function branchForTask(taskId: string): string {
 /** Tipos de tarea que escriben código y por tanto necesitan su propio espacio aislado. */
 const ESCRIBEN_CODIGO = new Set(['build', 'fix']);
 
+/** Tipos de tarea que pueden pedir apoyo a otro rol. */
+const PIDEN_APOYO = new Set(['build', 'fix']);
+
 export interface RunTaskInput {
   task: Task;
   agent: Agent;
@@ -326,6 +329,21 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
         increment_id: incremento.id,
         findings: result.findings ?? [],
       });
+
+      // El trabajo de una revisión es dar el veredicto. Una vez dado, la revisión está
+      // hecha, aunque el agente diga que avanzó sin terminar: no hay nada más que revisar
+      // de ese incremento (decisión D37).
+      if (result.outcome === 'completed' || result.outcome === 'partial') {
+        setStatus(
+          db,
+          bus,
+          task.id,
+          'done',
+          (result.findings?.length ?? 0) > 0
+            ? `revisión con ${result.findings!.length} hallazgos`
+            : 'revisión sin hallazgos',
+        );
+      }
     }
     return null;
   }
@@ -391,6 +409,20 @@ function crearApoyos(
   result: AgentResult | null,
 ): string[] {
   if (!result?.needs || result.needs.length === 0) return [];
+
+  // Solo quien construye pide apoyo. El investigador responde con lo que encuentra o dice
+  // que no se puede saber; el reviewer revisa lo que hay. Si el investigador pudiera pedir
+  // apoyo, cada respuesta abriría otra pregunta y la cadena no terminaría nunca (D36).
+  if (!PIDEN_APOYO.has(task.kind)) return [];
+
+  // Una tarea de apoyo no pide más apoyo. Un nivel es suficiente para desbloquear a quien
+  // preguntó, y más niveles solo alejan el trabajo del objetivo.
+  if (task.parent_task_id) {
+    const padre = db.prepare('SELECT kind FROM tasks WHERE id = ?').get(task.parent_task_id) as
+      | { kind: string }
+      | undefined;
+    if (padre?.kind === 'research') return [];
+  }
 
   // Una tarea que sigue esperando un apoyo no pide otro: sin esta comprobación, cada
   // intento crearía una tarea de apoyo más para la misma pregunta.

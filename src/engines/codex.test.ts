@@ -26,19 +26,18 @@ describe('argumentos de la línea de órdenes', () => {
     expect(args[args.length - 1]).toBe('-');
   });
 
-  it('no pide aprobaciones, porque nadie puede responderlas', () => {
-    const args = motor.buildArgs(peticionBase, null, '/tmp/r.txt');
-    expect(args[args.indexOf('-c') + 1]).toBe('approval_policy="never"');
-  });
-
-  it('un rol que escribe recibe permiso de escritura en su espacio', () => {
+  it('el agente puede ejecutar órdenes en su espacio de trabajo', () => {
     const args = motor.buildArgs({ ...peticionBase, permissionMode: 'bypassPermissions' }, null, '/tmp/r.txt');
-    expect(args[args.indexOf('-s') + 1]).toBe('workspace-write');
+    // En Windows, el sandbox propio de Codex rechaza lanzar PowerShell, así que con él
+    // activado el agente no puede ni consultar Git ni ejecutar las pruebas.
+    expect(args).toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
-  it('un rol que solo lee no puede escribir', () => {
-    const args = motor.buildArgs({ ...peticionBase, permissionMode: 'manual' }, null, '/tmp/r.txt');
+  it('el modo de solo planificar no ejecuta nada', () => {
+    const args = motor.buildArgs({ ...peticionBase, permissionMode: 'plan' }, null, '/tmp/r.txt');
+    expect(args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(args[args.indexOf('-s') + 1]).toBe('read-only');
+    expect(args[args.indexOf('-c') + 1]).toBe('approval_policy="never"');
   });
 
   it('el esquema del resultado va como fichero', () => {
@@ -53,8 +52,8 @@ describe('argumentos de la línea de órdenes', () => {
     expect(posicionResume).toBeGreaterThan(0);
     expect(args[posicionResume + 1]).toBe('hilo-1');
     // El subcomando resume rechaza las opciones que van detrás de él.
-    expect(args.indexOf('-s')).toBeLessThan(posicionResume);
     expect(args.indexOf('--json')).toBeLessThan(posicionResume);
+    expect(args.indexOf('--ignore-user-config')).toBeLessThan(posicionResume);
   });
 });
 

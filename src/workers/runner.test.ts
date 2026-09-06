@@ -446,3 +446,78 @@ describe('el apoyo no se pide dos veces', () => {
     expect(apoyos.n).toBe(1);
   });
 });
+
+describe('los apoyos no se encadenan', () => {
+  const conNeeds = () =>
+    new MotorSimulado({
+      resultText: JSON.stringify({
+        outcome: 'partial',
+        summary: 'Necesito saber algo más.',
+        needs: ['Otra pregunta.'],
+      }),
+    });
+
+  it('una tarea de investigación no pide apoyo', async () => {
+    createAgent(db, {
+      project_id: proyecto.id, name: 'Investigador', role: 'researcher', engine: 'claude_code',
+      instructions: 'investiga', allowed_tools: ['Read'],
+    });
+
+    const t = tareaLista({ kind: 'research', required_role: 'builder' });
+    await ejecutar(t, conNeeds());
+
+    const apoyos = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE kind = 'research'").get() as { n: number };
+    // Solo existe la propia tarea de investigación, sin ninguna hija.
+    expect(apoyos.n).toBe(1);
+  });
+
+  it('una revisión no pide apoyo', async () => {
+    createAgent(db, {
+      project_id: proyecto.id, name: 'Investigador', role: 'researcher', engine: 'claude_code',
+      instructions: 'investiga', allowed_tools: ['Read'],
+    });
+
+    const t = tareaLista({ kind: 'review', required_role: 'builder' });
+    await ejecutar(t, conNeeds());
+
+    const apoyos = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE kind = 'research'").get() as { n: number };
+    expect(apoyos.n).toBe(0);
+  });
+});
+
+describe('la revisión se cierra al dar su veredicto', () => {
+  it('una revisión sin hallazgos queda hecha', async () => {
+    const reviewer = createAgent(db, {
+      project_id: proyecto.id, name: 'Reviewer 2', role: 'reviewer', engine: 'codex',
+      instructions: 'revisa', allowed_tools: ['Read'],
+    });
+
+    // Se prepara una construcción con incremento publicado y su revisión abierta.
+    const build = tareaLista();
+    const motorBuilder = new MotorSimulado({ resultText: resultadoCompleto() }, async (req) => {
+      writeFileSync(join(req.cwd, 'nuevo.txt'), 'contenido\n');
+    });
+    await ejecutar(build, motorBuilder);
+
+    const revision = db
+      .prepare("SELECT * FROM tasks WHERE parent_task_id = ? AND kind = 'review'")
+      .get(build.id) as Task;
+    expect(revision).toBeDefined();
+
+    // El reviewer dice que avanzó sin terminar, pero entrega su veredicto sin hallazgos.
+    const claim = claimTask(db, bus, {
+      task_id: revision.id, agent_id: reviewer.id, worker_id: 'wr', engine: 'codex',
+    });
+    await runTask(db, bus, {
+      task: requireTask(db, revision.id),
+      agent: reviewer,
+      run: claim.run!,
+      engine: new MotorSimulado({
+        resultText: JSON.stringify({ outcome: 'partial', summary: 'He revisado el commit.', findings: [] }),
+      }),
+    });
+
+    expect(requireTask(db, revision.id).status).toBe('done');
+    expect(requireTask(db, build.id).status).toBe('done');
+  });
+});
