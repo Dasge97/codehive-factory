@@ -1,0 +1,36 @@
+# Dependencias
+node_modules/
+.pnp/
+.pnp.js
+
+# Compilado
+dist/
+build/
+*.tsbuildinfo
+
+# Base de datos y estado local
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Espacios de trabajo de los agentes
+workspaces/
+worktrees/
+
+# Registros de ejecución
+logs/
+*.log
+
+# Configuración local y credenciales
+.env
+.env.*
+!.env.example
+config.local.json
+.claude/settings.local.json
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
