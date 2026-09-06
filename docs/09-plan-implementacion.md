@@ -112,16 +112,16 @@ creador integra desde la web.
 
 La construye el propio sistema, con el creador dirigiendo desde el chat.
 
-| ID | Tarea | Depende de | Hecha cuando |
+| ID | Tarea | Estado | Hecha cuando |
 | --- | --- | --- | --- |
-| F2-01 | Varios workers por agente. | F1-27 | Dos workers del mismo rol trabajan a la vez sin reclamar la misma tarea. |
-| F2-02 | Vigencia renovable de las asignaciones y detección de workers caídos. | F2-01 | Un worker que deja de renovar libera su tarea y el sistema la reasigna. |
-| F2-03 | Control de resultados tardíos. | F2-02 | Un resultado de una ejecución ya sustituida no cambia el estado vigente. |
-| F2-04 | Mensajes entre agentes: consulta, aviso, petición de apoyo y escalado. | F1-27 | Un builder pregunta al investigador y aplica la respuesta, todo registrado. |
-| F2-05 | Directorio de equipo consultable por los agentes. | F2-04 | Un agente consulta quién está disponible y con qué capacidades. |
-| F2-06 | Adaptador de Codex. | F1-27 | Pasa las mismas comprobaciones de la fase 0 y declara sus capacidades. |
-| F2-07 | Motor configurable por agente desde la web. | F2-06 | El reviewer se ejecuta con Codex mientras el builder usa Claude Code. |
-| F2-08 | Pruebas de aceptación de la fase 2. | todas las anteriores | Las pruebas del documento 10 marcadas como fase 2 pasan. |
+| F2-01 | Varios workers por agente. | Hecha | Dos workers del mismo rol trabajan a la vez sin reclamar la misma tarea. |
+| F2-02 | Vigencia renovable de las asignaciones y detección de workers caídos. | Hecha | Un worker que deja de renovar libera su tarea y el sistema la reasigna. |
+| F2-03 | Control de resultados tardíos. | Hecha | Un resultado de una ejecución ya sustituida no cambia el estado vigente. |
+| F2-04 | Mensajes entre agentes: consulta, aviso, petición de apoyo y escalado. | Hecha | Un builder pide apoyo, se crea la tarea del investigador y la suya espera. |
+| F2-05 | Directorio de equipo consultable por los agentes. | Hecha | El encargo de cada agente lleva quién está disponible y con qué está. |
+| F2-06 | Adaptador de Codex. | Pendiente | Pasa las mismas comprobaciones de la fase 0 y declara sus capacidades. |
+| F2-07 | Motor configurable por agente desde la web. | Pendiente | El reviewer se ejecuta con Codex mientras el builder usa Claude Code. |
+| F2-08 | Pruebas de aceptación de la fase 2. | Parcial | P2-01 a P2-05 pasan. P2-06 espera al adaptador de Codex. |
 
 ---
 

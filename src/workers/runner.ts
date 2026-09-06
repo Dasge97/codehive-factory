@@ -7,6 +7,8 @@ import { buildAssignment, renderAssignment } from '../core/assignment.js';
 import { agentTools, requireProject } from '../core/projects.js';
 import { openFindings, publishIncrement } from '../core/review.js';
 import { markNoticesDelivered, requireTask, setStatus } from '../core/tasks.js';
+import { isRunCurrent, recordStaleResult, releaseLease } from '../core/leases.js';
+import { helpRequestToTask, markDelivered } from '../core/agent-messages.js';
 import { newId, now } from '../shared/ids.js';
 import {
   AGENT_RESULT_JSON_SCHEMA,
@@ -69,6 +71,7 @@ export async function runTask(
   const assignment = buildAssignment(db, task.id);
   const prompt = renderAssignment(assignment);
   markNoticesDelivered(db, task.id);
+  markDelivered(db, agent.id);
 
   const handle = engine.start(
     {
@@ -101,6 +104,14 @@ export async function runTask(
   const outcome = await handle.wait();
 
   saveUsage(db, bus, engine.name, outcome);
+
+  // Un worker que se dio por perdido puede volver en sí y devolver su resultado tarde. Ese
+  // resultado no puede pisar el trabajo de quien tomó la tarea después (decisión D31).
+  if (!isRunCurrent(db, run.id)) {
+    const { result: tardio } = parseResult(outcome.resultText);
+    recordStaleResult(db, bus, run.id, tardio?.summary ?? null);
+    return { outcome, result: null, parseError: 'La ejecución ya había sido sustituida.', incrementId: null };
+  }
   const denegaciones = saveApprovals(db, bus, task, run, outcome);
 
   const { result, parseError } = parseResult(outcome.resultText);
@@ -114,7 +125,12 @@ export async function runTask(
     result,
   });
 
-  finishRun(db, bus, { task, agent, run, outcome, result, parseError, denegaciones, maxAttempts: project.max_task_attempts });
+  const apoyos = crearApoyos(db, bus, task, agent, result);
+
+  finishRun(db, bus, {
+    task, agent, run, outcome, result, parseError, denegaciones,
+    maxAttempts: project.max_task_attempts, apoyos,
+  });
 
   return { outcome, result, parseError, incrementId };
 }
@@ -360,6 +376,41 @@ async function commitPendiente(worktreePath: string, resumen: string, titulo: st
   ]);
 }
 
+/**
+ * Convierte en tareas las peticiones de apoyo que el agente dejó en su resultado.
+ *
+ * Pedir ayuda no es que otro haga tu trabajo sin dejar rastro: cada petición produce una
+ * tarea con su propio responsable, y la tarea que la pidió espera a que se resuelva
+ * (documento 06, apartado 6.2).
+ */
+function crearApoyos(
+  db: Db,
+  bus: EventBus,
+  task: Task,
+  agent: Agent,
+  result: AgentResult | null,
+): string[] {
+  if (!result?.needs || result.needs.length === 0) return [];
+
+  const creadas: string[] = [];
+  for (const peticion of result.needs.slice(0, 3)) {
+    const apoyo = helpRequestToTask(db, bus, {
+      project_id: task.project_id,
+      from_agent_id: agent.id,
+      to_role: 'researcher',
+      body: peticion,
+      task_id: task.id,
+    });
+
+    db.prepare('INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)').run(
+      task.id,
+      apoyo.id,
+    );
+    creadas.push(apoyo.id);
+  }
+  return creadas;
+}
+
 interface FinishRunInput {
   task: Task;
   agent: Agent;
@@ -369,6 +420,7 @@ interface FinishRunInput {
   parseError: string | null;
   denegaciones: number;
   maxAttempts: number;
+  apoyos: string[];
 }
 
 /** Cierra la ejecución y deja la tarea en el estado que corresponda. */
@@ -417,6 +469,7 @@ function finishRun(db: Db, bus: EventBus, input: FinishRunInput): void {
     task.id,
     run.id,
   );
+  releaseLease(db, task.id);
 
   decideTaskStatus(db, bus, { ...input, estadoRun, fallo });
 }
@@ -453,6 +506,10 @@ function decideTaskStatus(
 
   switch (result.outcome) {
     case 'blocked':
+      if (input.apoyos.length > 0) {
+        setStatus(db, bus, task.id, 'pending', `espera el apoyo que ha pedido: ${result.summary}`);
+        return;
+      }
       setStatus(db, bus, task.id, 'blocked', result.summary);
       return;
 
@@ -465,6 +522,11 @@ function decideTaskStatus(
       return;
 
     case 'partial':
+      // Si pidió apoyo, espera a que llegue en vez de reintentar a ciegas.
+      if (input.apoyos.length > 0) {
+        setStatus(db, bus, task.id, 'pending', `espera el apoyo que ha pedido (${input.apoyos.length} tareas)`);
+        return;
+      }
       // Avanzar sin terminar también gasta intentos: sin ese límite, un agente que nunca
       // cierra la tarea la reintenta indefinidamente.
       if (actual.attempts >= maxAttempts) {

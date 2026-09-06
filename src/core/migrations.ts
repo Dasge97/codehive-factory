@@ -259,4 +259,38 @@ CREATE TABLE engine_usage (
 );
 `,
   },
+  {
+    version: 2,
+    name: 'vigencia de asignaciones y mensajes entre agentes',
+    sql: `
+-- Vigencia de una asignación. Un worker que deja de renovarla se da por perdido.
+CREATE TABLE leases (
+  task_id    TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  run_id     TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  worker_id  TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  renewed_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_leases_expiry ON leases(expires_at);
+
+-- Mensajes entre agentes: consultas, avisos, peticiones de apoyo y escalados.
+CREATE TABLE agent_messages (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  thread_id     TEXT NOT NULL,
+  from_agent_id TEXT NOT NULL REFERENCES agents(id),
+  to_agent_id   TEXT REFERENCES agents(id),
+  kind          TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  task_id       TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  delivered_at  TEXT,
+  created_at    TEXT NOT NULL,
+  CHECK (kind IN ('question','notice','help_request','answer','escalation'))
+);
+
+CREATE INDEX idx_agent_messages_thread  ON agent_messages(project_id, thread_id, created_at);
+CREATE INDEX idx_agent_messages_pending ON agent_messages(to_agent_id, delivered_at);
+`,
+  },
 ];

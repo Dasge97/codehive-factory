@@ -1,6 +1,7 @@
 import type { Db } from './db.js';
-import { currentDecisions, listAgents, requireProject } from './projects.js';
+import { currentDecisions, requireProject } from './projects.js';
 import { pendingNotices, requireTask, taskPathPatterns } from './tasks.js';
+import { pendingForAgent, teamDirectory } from './agent-messages.js';
 import type { Assignment, Finding, Run, Task } from '../shared/types.js';
 
 /**
@@ -26,20 +27,12 @@ export function buildAssignment(db: Db, taskId: string): Assignment {
     )
     .all(taskId) as Assignment['dependencies'];
 
-  const equipo = listAgents(db, task.project_id).map((agent) => {
-    const ocupado = db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM runs
-         WHERE agent_id = ? AND status = 'running'`,
-      )
-      .get(agent.id) as { n: number };
-    return {
-      agent_id: agent.id,
-      name: agent.name,
-      role: agent.role,
-      available: ocupado.n < agent.max_workers,
-    };
-  });
+  const equipo = teamDirectory(db, task.project_id).map((a) => ({
+    agent_id: a.agent_id,
+    name: a.name,
+    role: a.role,
+    available: a.available,
+  }));
 
   const previa = db
     .prepare(
@@ -79,7 +72,15 @@ export function buildAssignment(db: Db, taskId: string): Assignment {
     locks: taskPathPatterns(db, taskId),
     findings: findingsForTask(db, task),
     team: equipo,
-    notices: pendingNotices(db, taskId),
+    notices: [
+      ...pendingNotices(db, taskId),
+      ...(task.assigned_agent_id
+        ? pendingForAgent(db, task.assigned_agent_id).map((m) => ({
+            from: m.from_agent_id,
+            body: `[${m.kind}] ${m.body}`,
+          }))
+        : []),
+    ],
     previous_run: previa ?? null,
   };
 }
@@ -225,9 +226,14 @@ export function renderAssignment(assignment: Assignment): string {
   partes.push(
     seccion(
       'Equipo',
-      assignment.team
-        .map((a) => `- ${a.name} (${a.role}): ${a.available ? 'disponible' : 'ocupado'}`)
-        .join('\n'),
+      [
+        assignment.team
+          .map((a) => `- ${a.name} (${a.role}): ${a.available ? 'disponible' : 'ocupado'}`)
+          .join('\n'),
+        '',
+        'Si necesitas algo que sabe hacer otro rol, decláralo en el campo needs de tu resultado.',
+        'Se convertirá en una tarea con responsable, y tu tarea la esperará.',
+      ].join('\n'),
     ),
   );
 

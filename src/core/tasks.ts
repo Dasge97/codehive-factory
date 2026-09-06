@@ -29,6 +29,9 @@ export class RuleError extends Error {
  * Cancelar es posible desde cualquier estado no terminal, porque es una decisión del
  * creador que no debe depender de en qué punto esté el trabajo.
  *
+ * De `in_progress` se puede volver a `pending` cuando el agente pide apoyo a otro rol: la
+ * tarea espera a que llegue ese apoyo en lugar de reintentarse a ciegas.
+ *
  * De `done` solo se sale a `ready`, y solo por un motivo: la integración falló. Una tarea
  * aprobada sobre su rama aislada puede dar conflicto al fusionar, o romper las
  * verificaciones una vez fusionada, y entonces vuelve a necesitar trabajo (documento 07,
@@ -37,7 +40,7 @@ export class RuleError extends Error {
 const TRANSICIONES: Record<TaskStatus, readonly TaskStatus[]> = {
   pending: ['ready', 'blocked', 'cancelled'],
   ready: ['pending', 'in_progress', 'blocked', 'cancelled'],
-  in_progress: ['ready', 'in_review', 'blocked', 'done', 'cancelled'],
+  in_progress: ['pending', 'ready', 'in_review', 'blocked', 'done', 'cancelled'],
   in_review: ['ready', 'blocked', 'done', 'cancelled'],
   blocked: ['pending', 'ready', 'cancelled'],
   done: ['ready'],

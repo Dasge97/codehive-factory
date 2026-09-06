@@ -11,6 +11,7 @@ import {
   renderOrchestratorPrompt,
 } from '../core/orchestrator.js';
 import { requireTask } from '../core/tasks.js';
+import { LEASE_RENEW_MS, reclaimExpiredLeases, renewLease } from '../core/leases.js';
 import { newId } from '../shared/ids.js';
 import type { Agent, AgentRole } from '../shared/types.js';
 import type { Engine, EngineHandle } from '../engines/types.js';
@@ -31,6 +32,10 @@ interface TrabajoActivo {
 export interface SupervisorOptions {
   /** Cada cuánto se mira si hay trabajo, en milisegundos. */
   intervalMs?: number;
+  /** Cada cuánto se renueva la vigencia de las asignaciones en marcha. */
+  leaseRenewMs?: number;
+  /** Cuánto vale una asignación antes de darse por perdida. */
+  leaseTtlMs?: number;
 }
 
 /**
@@ -44,6 +49,7 @@ export class Supervisor {
   private temporizador: NodeJS.Timeout | null = null;
   private turnoOrquestadorPendiente = false;
   private turnoOrquestador: Promise<void> | null = null;
+  private renovacion: NodeJS.Timeout | null = null;
   private parando = false;
 
   constructor(
@@ -59,7 +65,20 @@ export class Supervisor {
     this.parando = false;
     const intervalo = this.options.intervalMs ?? 2000;
     this.temporizador = setInterval(() => void this.tick(), intervalo);
+
+    // Renovar la vigencia de lo que está en marcha va por su propio reloj: si dependiera
+    // del ciclo de reparto, un ciclo lento daría por perdidos a workers que están vivos.
+    const cadencia = this.options.leaseRenewMs ?? LEASE_RENEW_MS;
+    this.renovacion = setInterval(() => this.renovarVigencias(), cadencia);
+
     void this.tick();
+  }
+
+  /** Renueva la vigencia de cada trabajo en marcha. */
+  private renovarVigencias(): void {
+    for (const trabajo of this.activos.values()) {
+      renewLease(this.db, trabajo.task_id, trabajo.run_id, trabajo.worker_id, this.options.leaseTtlMs);
+    }
   }
 
   /**
@@ -73,6 +92,10 @@ export class Supervisor {
     if (this.temporizador) {
       clearInterval(this.temporizador);
       this.temporizador = null;
+    }
+    if (this.renovacion) {
+      clearInterval(this.renovacion);
+      this.renovacion = null;
     }
 
     for (const trabajo of this.activos.values()) {
@@ -113,6 +136,9 @@ export class Supervisor {
     if (project.status !== 'active') return;
 
     if (this.sinCuota()) return;
+
+    // Antes de repartir trabajo nuevo se recupera el de los workers que se perdieron.
+    reclaimExpiredLeases(this.db, this.bus, this.projectId);
 
     if (this.turnoOrquestadorPendiente && !this.turnoOrquestador) {
       this.turnoOrquestadorPendiente = false;

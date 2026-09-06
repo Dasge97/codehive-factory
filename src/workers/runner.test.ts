@@ -375,3 +375,41 @@ describe('fallos encontrados en la primera prueba con agentes reales', () => {
     expect(actualizada.blocked_reason).toMatch(/avanzó sin terminar en 2 intentos/);
   });
 });
+
+describe('P2-04 · una petición de apoyo se convierte en una tarea', () => {
+  it('crea la tarea de apoyo y la original la espera', async () => {
+    createAgent(db, {
+      project_id: proyecto.id, name: 'Investigador', role: 'researcher', engine: 'claude_code',
+      instructions: 'investiga', allowed_tools: ['Read'],
+    });
+
+    const t = tareaLista();
+    const motor = new MotorSimulado({
+      resultText: JSON.stringify({
+        outcome: 'partial',
+        summary: 'No sé cómo valida los nombres el resto del proyecto.',
+        needs: ['Averiguar dónde está la validación de nombres actual.'],
+      }),
+    });
+
+    await ejecutar(t, motor);
+
+    const apoyo = db
+      .prepare("SELECT * FROM tasks WHERE kind = 'research'")
+      .get() as Task;
+    expect(apoyo).toBeDefined();
+    expect(apoyo.required_role).toBe('researcher');
+    expect(apoyo.goal).toMatch(/validación de nombres/);
+    expect(apoyo.parent_task_id).toBe(t.id);
+
+    // La tarea que pidió el apoyo queda esperando, no reintentando a ciegas.
+    const original = requireTask(db, t.id);
+    expect(original.status).toBe('pending');
+    expect(original.blocked_reason).toBeNull();
+
+    const dependencia = db
+      .prepare('SELECT depends_on_id FROM task_dependencies WHERE task_id = ?')
+      .get(t.id) as { depends_on_id: string };
+    expect(dependencia.depends_on_id).toBe(apoyo.id);
+  });
+});

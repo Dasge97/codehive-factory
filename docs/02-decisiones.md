@@ -483,6 +483,68 @@ apartado 7.7 del documento de flujo de trabajo era imposible de cumplir.
 
 ---
 
+## D30 · Las asignaciones tienen vigencia renovable
+
+**Origen:** técnica, fase 2.
+
+Reclamar una tarea crea una vigencia que caduca a los 90 segundos. El supervisor la renueva
+cada 20 segundos por su propio reloj. Antes de repartir trabajo nuevo, un barrido recupera
+las tareas cuya vigencia caducó.
+
+**Por qué:** un worker puede morir sin dejar rastro. Sin vigencia, su tarea se quedaría en
+curso para siempre y nadie más podría tomarla.
+
+**Por qué la renovación va por su propio reloj:** si dependiera del ciclo de reparto, un
+ciclo lento daría por perdidos a workers que están vivos.
+
+**Qué pasa con el trabajo del worker perdido:** si llegó a publicar un incremento, la tarea
+pasa a revisión en lugar de volver a construirse desde cero. Su trabajo no se tira.
+
+---
+
+## D31 · Un resultado tardío no sobrescribe el estado vigente
+
+**Origen:** técnica, fase 2.
+
+Antes de guardar nada, el worker comprueba que su ejecución sigue siendo la vigente de la
+tarea. Si otra la sustituyó, el resultado se registra como descartado con su resumen, y no
+cambia ningún estado.
+
+**Por qué:** un worker dado por perdido puede volver en sí y terminar. Aplicar su resultado
+pisaría el trabajo de quien tomó la tarea después, y podría crear un incremento duplicado.
+
+---
+
+## D32 · Pedir apoyo crea una tarea, y quien la pide espera
+
+**Origen:** técnica, fase 2.
+
+Cuando un agente declara en el campo `needs` de su resultado que necesita algo de otro rol,
+el sistema crea una tarea de apoyo con responsable, la pone como dependencia de la tarea que
+la pidió, y esa tarea vuelve a pendiente.
+
+**Por qué:** ayudar no es que otro haga tu trabajo sin dejar rastro. Cada petición tiene un
+responsable y queda registrada. Y quien pidió el apoyo espera a recibirlo en lugar de
+reintentar a ciegas gastando intentos.
+
+**Límite:** como mucho tres peticiones de apoyo por ejecución. Una tarea que pide diez cosas
+no está pidiendo apoyo, está mal planteada.
+
+---
+
+## D33 · Una conversación entre agentes se escala al sexto mensaje
+
+**Origen:** técnica, fase 2.
+
+Un hilo de mensajes entre agentes admite seis mensajes. El siguiente se convierte en un
+escalado dirigido al orquestador, con lo que se ha dicho hasta ese punto.
+
+**Por qué:** dos agentes que no llegan a nada pueden seguir contestándose sin producir
+ningún resultado, gastando cuota. El límite corta ese caso y lleva la decisión a quien
+puede tomarla.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

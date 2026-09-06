@@ -45,6 +45,10 @@ describe('transiciones de estado', () => {
     expect(puedeTransicionar('blocked', 'ready')).toBe(true);
   });
 
+  it('una tarea que pide apoyo vuelve a pendiente', () => {
+    expect(puedeTransicionar('in_progress', 'pending')).toBe(true);
+  });
+
   it('rechaza saltarse el flujo', () => {
     expect(puedeTransicionar('pending', 'in_progress')).toBe(false);
     expect(puedeTransicionar('pending', 'done')).toBe(false);

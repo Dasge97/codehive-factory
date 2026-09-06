@@ -2,6 +2,7 @@ import type { Db } from './db.js';
 import { inImmediateTransaction } from './db.js';
 import { EventBus, insertEvent, publishEvents } from './events.js';
 import { RuleError, requireTask, taskPathPatterns } from './tasks.js';
+import { releaseLease, renewLease } from './leases.js';
 import { newId, now } from '../shared/ids.js';
 import type { AgentRole, EngineName, Run, SystemEvent, Task } from '../shared/types.js';
 
@@ -217,6 +218,10 @@ export function claimTask(db: Db, bus: EventBus, input: ClaimInput): ClaimResult
       momento,
     );
 
+    // La asignación nace con vigencia. Un worker que deje de renovarla se da por perdido
+    // y su tarea vuelve al trabajo (decisión D30).
+    renewLease(db, input.task_id, runId, input.worker_id);
+
     eventos.push(
       insertEvent(db, {
         project_id: task.project_id,
@@ -333,6 +338,7 @@ export function abandonRun(db: Db, bus: EventBus, runId: string, motivo: string)
     db.prepare(
       "UPDATE tasks SET status = 'ready', active_run_id = NULL, updated_at = ? WHERE id = ? AND active_run_id = ?",
     ).run(now(), run.task_id, runId);
+    releaseLease(db, run.task_id);
 
     const task = requireTask(db, run.task_id);
     return [
