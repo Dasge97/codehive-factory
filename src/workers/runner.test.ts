@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { openDatabase, type Db } from '../core/db.js';
 import { EventBus, listEvents } from '../core/events.js';
 import { createAgent, createProject } from '../core/projects.js';
-import { createTask, requireTask } from '../core/tasks.js';
+import { createTask, requireTask, setStatus } from '../core/tasks.js';
 import { claimTask } from '../core/queue.js';
 import { listIncrements } from '../core/review.js';
 import { parseResult, runTask } from './runner.js';
@@ -411,5 +411,38 @@ describe('P2-04 · una petición de apoyo se convierte en una tarea', () => {
       .prepare('SELECT depends_on_id FROM task_dependencies WHERE task_id = ?')
       .get(t.id) as { depends_on_id: string };
     expect(dependencia.depends_on_id).toBe(apoyo.id);
+  });
+});
+
+describe('el apoyo no se pide dos veces', () => {
+  it('mientras el apoyo esté abierto, la tarea no se puede reclamar', async () => {
+    createAgent(db, {
+      project_id: proyecto.id, name: 'Investigador', role: 'researcher', engine: 'claude_code',
+      instructions: 'investiga', allowed_tools: ['Read'],
+    });
+
+    const t = tareaLista();
+    const motor = new MotorSimulado({
+      resultText: JSON.stringify({
+        outcome: 'partial',
+        summary: 'Sigo sin saberlo.',
+        needs: ['Averiguar cómo valida los nombres el proyecto.'],
+      }),
+    });
+
+    await ejecutar(t, motor);
+
+    // La dependencia con la tarea de apoyo impide reclamarla otra vez, así que no puede
+    // volver a pedir lo mismo mientras espera.
+    setStatus(db, bus, t.id, 'ready', 'prueba');
+    const segundo = claimTask(db, bus, {
+      task_id: t.id, agent_id: builder.id, worker_id: 'w2', engine: 'claude_code',
+    });
+
+    expect(segundo.claimed).toBe(false);
+    expect(segundo.reason).toMatch(/espera a que terminen/i);
+
+    const apoyos = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE kind = 'research'").get() as { n: number };
+    expect(apoyos.n).toBe(1);
   });
 });

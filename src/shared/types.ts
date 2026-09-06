@@ -256,7 +256,7 @@ export const findingInputSchema = z.object({
   detail: z.string().min(1),
   resolution: z.string().min(1),
   file_path: z.string().nullable().optional(),
-  line: z.number().int().nullable().optional(),
+  line: z.number().nullable().optional(),
 });
 export type FindingInput = z.infer<typeof findingInputSchema>;
 
@@ -273,9 +273,9 @@ export const agentResultSchema = z.object({
     })
     .nullable()
     .optional(),
-  findings: z.array(findingInputSchema).optional(),
-  questions: z.array(z.string()).optional(),
-  needs: z.array(z.string()).optional(),
+  findings: z.array(findingInputSchema).nullable().optional(),
+  questions: z.array(z.string()).nullable().optional(),
+  needs: z.array(z.string()).nullable().optional(),
 });
 export type AgentResult = z.infer<typeof agentResultSchema>;
 
@@ -290,30 +290,32 @@ export const AGENT_RESULT_JSON_SCHEMA = {
     outcome: {
       type: 'string',
       enum: ['completed', 'partial', 'blocked', 'failed'],
-      description: 'completed si la tarea queda cumplida, partial si avanzó sin terminar, blocked si algo la impide, failed si no se pudo hacer.',
+      description:
+        'completed si la tarea queda cumplida, partial si avanzó sin terminar, blocked si algo la impide, failed si no se pudo hacer.',
     },
     summary: {
       type: 'string',
       description: 'Qué se ha hecho, en lenguaje llano. Es lo que lee el creador.',
     },
     commit: {
-      type: 'string',
-      description: 'Identificador del commit publicado, si la tarea tocaba código.',
+      type: ['string', 'null'],
+      description: 'Identificador del commit publicado, o null si la tarea no tocaba código.',
     },
     verification: {
-      type: 'object',
+      type: ['object', 'null'],
+      description: 'Resultado del comando de verificación del proyecto, o null si no se ejecutó.',
       properties: {
         ran: { type: 'boolean' },
-        command: { type: 'string' },
-        passed: { type: 'boolean' },
-        output_excerpt: { type: 'string' },
+        command: { type: ['string', 'null'] },
+        passed: { type: ['boolean', 'null'] },
+        output_excerpt: { type: ['string', 'null'] },
       },
-      required: ['ran'],
+      required: ['ran', 'command', 'passed', 'output_excerpt'],
       additionalProperties: false,
     },
     findings: {
-      type: 'array',
-      description: 'Solo lo rellena el reviewer. Un elemento por problema detectado.',
+      type: ['array', 'null'],
+      description: 'Solo lo rellena el reviewer. Un elemento por problema detectado, o null.',
       items: {
         type: 'object',
         properties: {
@@ -321,25 +323,27 @@ export const AGENT_RESULT_JSON_SCHEMA = {
           title: { type: 'string' },
           detail: { type: 'string' },
           resolution: { type: 'string' },
-          file_path: { type: 'string' },
-          line: { type: 'number' },
+          file_path: { type: ['string', 'null'] },
+          line: { type: ['number', 'null'] },
         },
-        required: ['severity', 'title', 'detail', 'resolution'],
+        required: ['severity', 'title', 'detail', 'resolution', 'file_path', 'line'],
         additionalProperties: false,
       },
     },
     questions: {
-      type: 'array',
-      description: 'Preguntas que bloquean el trabajo y necesitan respuesta.',
+      type: ['array', 'null'],
+      description: 'Preguntas que bloquean el trabajo y necesitan respuesta, o null.',
       items: { type: 'string' },
     },
     needs: {
-      type: 'array',
-      description: 'Peticiones de apoyo a otro rol. Cada una genera una tarea nueva.',
+      type: ['array', 'null'],
+      description: 'Peticiones de apoyo a otro rol, o null. Cada una genera una tarea nueva.',
       items: { type: 'string' },
     },
   },
-  required: ['outcome', 'summary'],
+  // Codex exige que todas las propiedades estén en `required`; las que no se usan van a
+  // null. Claude Code acepta el mismo esquema, así que uno solo vale para los dos motores.
+  required: ['outcome', 'summary', 'commit', 'verification', 'findings', 'questions', 'needs'],
   additionalProperties: false,
 } as const;
 

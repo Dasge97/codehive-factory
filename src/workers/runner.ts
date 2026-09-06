@@ -392,6 +392,17 @@ function crearApoyos(
 ): string[] {
   if (!result?.needs || result.needs.length === 0) return [];
 
+  // Una tarea que sigue esperando un apoyo no pide otro: sin esta comprobación, cada
+  // intento crearía una tarea de apoyo más para la misma pregunta.
+  const yaEsperando = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM task_dependencies d
+       JOIN tasks t ON t.id = d.depends_on_id
+       WHERE d.task_id = ? AND t.status NOT IN ('done','cancelled')`,
+    )
+    .get(task.id) as { n: number };
+  if (yaEsperando.n > 0) return [];
+
   const creadas: string[] = [];
   for (const peticion of result.needs.slice(0, 3)) {
     const apoyo = helpRequestToTask(db, bus, {

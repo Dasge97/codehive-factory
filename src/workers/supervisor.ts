@@ -15,6 +15,7 @@ import { LEASE_RENEW_MS, reclaimExpiredLeases, renewLease } from '../core/leases
 import { newId } from '../shared/ids.js';
 import type { Agent, AgentRole } from '../shared/types.js';
 import type { Engine, EngineHandle } from '../engines/types.js';
+import type { EngineRegistry } from '../engines/registry.js';
 import { runTask } from './runner.js';
 
 /** Una ejecución en marcha, con lo justo para poder pararla. */
@@ -52,13 +53,39 @@ export class Supervisor {
   private renovacion: NodeJS.Timeout | null = null;
   private parando = false;
 
+  private readonly registry: EngineRegistry | null;
+  private readonly engine: Engine | null;
+
+  /**
+   * Recibe un motor único o un registro con varios. Con un registro, cada agente se
+   * ejecuta con el motor que tenga configurado (decisión D34).
+   */
   constructor(
     private readonly db: Db,
     private readonly bus: EventBus,
     private readonly projectId: string,
-    private readonly engine: Engine,
+    engineOrRegistry: Engine | EngineRegistry,
     private readonly options: SupervisorOptions = {},
-  ) {}
+  ) {
+    if ('require' in engineOrRegistry) {
+      this.registry = engineOrRegistry;
+      this.engine = null;
+    } else {
+      this.registry = null;
+      this.engine = engineOrRegistry;
+    }
+  }
+
+  /** Motor con el que se ejecuta un agente. */
+  private motorDe(agent: Agent): Engine {
+    if (this.engine) return this.engine;
+    return this.registry!.require(agent.engine);
+  }
+
+  /** Motores en uso, para las comprobaciones que no dependen de un agente concreto. */
+  private motores(): Engine[] {
+    return this.engine ? [this.engine] : this.registry!.available();
+  }
 
   start(): void {
     if (this.temporizador) return;
@@ -135,7 +162,7 @@ export class Supervisor {
     const project = requireProject(this.db, this.projectId);
     if (project.status !== 'active') return;
 
-    if (this.sinCuota()) return;
+    if (this.todosSinCuota()) return;
 
     // Antes de repartir trabajo nuevo se recupera el de los workers que se perdieron.
     reclaimExpiredLeases(this.db, this.bus, this.projectId);
@@ -155,6 +182,8 @@ export class Supervisor {
       if (this.activos.size >= project.max_concurrent_runs) break;
       if (this.ocupadosDe(agent.id) >= agent.max_workers) continue;
       if (queueForRole(this.db, this.projectId, agent.role).length === 0) continue;
+      // Un agente cuyo motor se quedó sin cuota espera; los demás siguen trabajando.
+      if (this.sinCuota(agent.engine)) continue;
 
       this.arrancarWorker(agent);
     }
@@ -170,19 +199,38 @@ export class Supervisor {
    * Con el motor sin cuota, no se arranca nada. Sus tareas quedan como estén y conservan
    * su estado hasta que el creador decida reanudar (decisión D18).
    */
-  private sinCuota(): boolean {
+  private sinCuota(engine: string): boolean {
     const uso = this.db
       .prepare('SELECT status FROM engine_usage WHERE engine = ?')
-      .get(this.engine.name) as { status: string } | undefined;
+      .get(engine) as { status: string } | undefined;
     return uso?.status === 'exhausted' || uso?.status === 'rejected';
   }
 
+  /** Verdadero cuando ningún motor tiene cuota. */
+  private todosSinCuota(): boolean {
+    return this.motores().every((m) => this.sinCuota(m.name));
+  }
+
   private arrancarWorker(agent: Agent): void {
+    let motor: Engine;
+    try {
+      motor = this.motorDe(agent);
+    } catch (e) {
+      // El agente está configurado con un motor que no está instalado.
+      appendEvent(this.db, this.bus, {
+        project_id: this.projectId,
+        type: 'quota.exhausted',
+        agent_id: agent.id,
+        payload: { engine: agent.engine, reason: e instanceof Error ? e.message : String(e) },
+      });
+      return;
+    }
+
     const workerId = newId('worker');
     const claim = claimNext(this.db, this.bus, this.projectId, agent.role, {
       agent_id: agent.id,
       worker_id: workerId,
-      engine: this.engine.name,
+      engine: motor.name,
     });
     if (!claim.claimed || !claim.run || !claim.task) return;
 
@@ -199,7 +247,7 @@ export class Supervisor {
       task: claim.task,
       agent,
       run: claim.run,
-      engine: this.engine,
+      engine: motor,
     })
       .then(() => undefined)
       .catch((e) => {
@@ -231,7 +279,7 @@ export class Supervisor {
       const ultimo = [...snapshot.chat].reverse().find((m) => m.author === 'creator');
       const prompt = renderOrchestratorPrompt(snapshot, ultimo?.body ?? 'Revisa el estado y decide qué hace falta.');
 
-      const handle = this.engine.start({
+      const handle = this.motorDe(agent).start({
         prompt,
         cwd: requireProject(this.db, this.projectId).repo_path,
         // El orquestador no escribe código. Solo puede mirar para entender el proyecto.

@@ -27,17 +27,25 @@ export const orchestratorPlanSchema = z.object({
         role: z.enum(AGENT_ROLES),
         scope: z.string().nullable().optional(),
         acceptance: z.string().nullable().optional(),
-        priority: z.number().int().min(1).max(100).optional(),
-        path_patterns: z.array(z.string()).optional(),
-        depends_on: z.array(z.string()).optional(),
+        priority: z.number().int().min(1).max(100).nullable().optional(),
+        path_patterns: z.array(z.string()).nullable().optional(),
+        depends_on: z.array(z.string()).nullable().optional(),
       }),
     )
+    .nullable()
     .optional(),
   decisions: z
     .array(z.object({ title: z.string().min(1), body: z.string().min(1), supersedes_title: z.string().nullable().optional() }))
+    .nullable()
     .optional(),
-  priority_changes: z.array(z.object({ task_id: z.string(), priority: z.number().int().min(1).max(100) })).optional(),
-  cancellations: z.array(z.object({ task_id: z.string(), reason: z.string().min(1) })).optional(),
+  priority_changes: z
+    .array(z.object({ task_id: z.string(), priority: z.number().int().min(1).max(100) }))
+    .nullable()
+    .optional(),
+  cancellations: z
+    .array(z.object({ task_id: z.string(), reason: z.string().min(1) }))
+    .nullable()
+    .optional(),
 });
 
 export type OrchestratorPlan = z.infer<typeof orchestratorPlanSchema>;
@@ -47,10 +55,13 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
   type: 'object',
   properties: {
     reply: { type: 'string', description: 'Respuesta para el creador, en lenguaje llano.' },
-    project_goal: { type: 'string', description: 'Objetivo actual del proyecto, si ha cambiado.' },
+    project_goal: {
+      type: ['string', 'null'],
+      description: 'Objetivo actual del proyecto, o null si no ha cambiado.',
+    },
     tasks: {
-      type: 'array',
-      description: 'Tareas nuevas. Cada una debe poder ejecutarse sin volver a preguntar.',
+      type: ['array', 'null'],
+      description: 'Tareas nuevas, o null. Cada una debe poder ejecutarse sin volver a preguntar.',
       items: {
         type: 'object',
         properties: {
@@ -58,40 +69,45 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
           goal: { type: 'string', description: 'Qué resultado se espera.' },
           kind: { type: 'string', enum: ['build', 'review', 'fix', 'research'] },
           role: { type: 'string', enum: ['builder', 'reviewer', 'researcher'] },
-          scope: { type: 'string', description: 'Qué queda fuera de esta tarea.' },
-          acceptance: { type: 'string', description: 'Criterios comprobables de aceptación.' },
-          priority: { type: 'number', description: 'De 1 a 100. Menor número, antes se ejecuta.' },
+          scope: { type: ['string', 'null'], description: 'Qué queda fuera de esta tarea.' },
+          acceptance: { type: ['string', 'null'], description: 'Criterios comprobables de aceptación.' },
+          priority: { type: ['number', 'null'], description: 'De 1 a 100. Menor número, antes se ejecuta.' },
           path_patterns: {
-            type: 'array',
-            description: 'Ficheros que va a modificar, como patrones. Dos tareas con los mismos ficheros no pueden ir a la vez.',
+            type: ['array', 'null'],
+            description:
+              'Ficheros que va a modificar, como patrones. Dos tareas con los mismos ficheros no pueden ir a la vez.',
             items: { type: 'string' },
           },
           depends_on: {
-            type: 'array',
-            description: 'Títulos de otras tareas de este mismo plan, o identificadores de tareas existentes, que deben terminar antes.',
+            type: ['array', 'null'],
+            description:
+              'Títulos de otras tareas de este mismo plan, o identificadores de tareas existentes, que deben terminar antes.',
             items: { type: 'string' },
           },
         },
-        required: ['title', 'goal', 'kind', 'role'],
+        required: ['title', 'goal', 'kind', 'role', 'scope', 'acceptance', 'priority', 'path_patterns', 'depends_on'],
         additionalProperties: false,
       },
     },
     decisions: {
-      type: 'array',
-      description: 'Decisiones de producto que hay que dejar registradas.',
+      type: ['array', 'null'],
+      description: 'Decisiones de producto que hay que dejar registradas, o null.',
       items: {
         type: 'object',
         properties: {
           title: { type: 'string' },
           body: { type: 'string' },
-          supersedes_title: { type: 'string', description: 'Título de la decisión anterior que queda sustituida.' },
+          supersedes_title: {
+            type: ['string', 'null'],
+            description: 'Título de la decisión anterior que queda sustituida, o null.',
+          },
         },
-        required: ['title', 'body'],
+        required: ['title', 'body', 'supersedes_title'],
         additionalProperties: false,
       },
     },
     priority_changes: {
-      type: 'array',
+      type: ['array', 'null'],
       items: {
         type: 'object',
         properties: { task_id: { type: 'string' }, priority: { type: 'number' } },
@@ -100,7 +116,7 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
       },
     },
     cancellations: {
-      type: 'array',
+      type: ['array', 'null'],
       items: {
         type: 'object',
         properties: { task_id: { type: 'string' }, reason: { type: 'string' } },
@@ -109,7 +125,9 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
       },
     },
   },
-  required: ['reply'],
+  // Todas las propiedades van en `required` porque Codex lo exige; las que no se usan van
+  // a null (decisión D35).
+  required: ['reply', 'project_goal', 'tasks', 'decisions', 'priority_changes', 'cancellations'],
   additionalProperties: false,
 } as const;
 

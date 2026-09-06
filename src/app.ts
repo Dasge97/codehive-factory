@@ -4,10 +4,10 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { openDatabase, type Db } from './core/db.js';
 import { EventBus } from './core/events.js';
-import { AGENT_ROLES, type AgentRole, type Project } from './shared/types.js';
+import { AGENT_ROLES, type AgentRole, type EngineName, type Project } from './shared/types.js';
 import { createAgent, createProject, listAgents, listProjects } from './core/projects.js';
-import { ROLE_DEFAULTS, instructionsFor } from './core/roles.js';
-import { ClaudeCodeEngine } from './engines/claude-code.js';
+import { ENGINE_POR_ROL, ROLE_DEFAULTS, instructionsFor } from './core/roles.js';
+import { EngineRegistry } from './engines/registry.js';
 import type { Engine } from './engines/types.js';
 import { createApi } from './server/api.js';
 import { Supervisor, recoverInterruptedRuns } from './workers/supervisor.js';
@@ -34,6 +34,7 @@ export interface AppConfig {
   /** Ruta del repositorio que se va a gestionar. */
   repoPath: string;
   port: number;
+  /** Motor único. Las pruebas lo usan para no llamar a ningún modelo. */
   engine?: Engine;
   /** Carpeta con la web compilada. Por omisión, `web-dist` junto al proceso. */
   webDir?: string;
@@ -42,7 +43,7 @@ export interface AppConfig {
 export interface App {
   db: Db;
   bus: EventBus;
-  engine: Engine;
+  engines: EngineRegistry;
   supervisor: Supervisor;
   project: Project;
   server: Server | null;
@@ -63,7 +64,13 @@ export function readProjectConfig(repoPath: string): ProjectConfig {
  * Registra un proyecto y su equipo si no existían todavía. Un proyecto ya registrado se
  * reutiliza: volver a arrancar el sistema no duplica nada.
  */
-export function ensureProject(db: Db, repoPath: string, config: ProjectConfig, model?: string | null): Project {
+export function ensureProject(
+  db: Db,
+  repoPath: string,
+  config: ProjectConfig,
+  model?: string | null,
+  motoresDisponibles?: EngineName[],
+): Project {
   const existente = listProjects(db).find((p) => resolve(p.repo_path) === resolve(repoPath));
   if (existente) return existente;
 
@@ -79,11 +86,16 @@ export function ensureProject(db: Db, repoPath: string, config: ProjectConfig, m
   });
 
   for (const role of AGENT_ROLES) {
+    // El motor preferido de cada rol, o Claude Code si el preferido no está instalado.
+    const preferido = ENGINE_POR_ROL[role as AgentRole];
+    const engine =
+      !motoresDisponibles || motoresDisponibles.includes(preferido) ? preferido : 'claude_code';
+
     createAgent(db, {
       project_id: project.id,
       name: ROLE_DEFAULTS[role as AgentRole].name,
       role: role as AgentRole,
-      engine: 'claude_code',
+      engine,
       model: model ?? config.model ?? null,
       instructions: instructionsFor(role as AgentRole),
       allowed_tools: ROLE_DEFAULTS[role as AgentRole].tools,
@@ -102,10 +114,19 @@ export async function createApp(config: AppConfig): Promise<App> {
 
   const db = openDatabase(config.dbPath);
   const bus = new EventBus();
-  const engine = config.engine ?? ClaudeCodeEngine.create();
+
+  // Con un motor dado se usa solo ese. Sin él, se detectan los que estén instalados y cada
+  // agente se ejecuta con el suyo (decisión D34).
+  const engines = config.engine ? new EngineRegistry([config.engine]) : EngineRegistry.detect();
 
   const projectConfig = readProjectConfig(config.repoPath);
-  const project = ensureProject(db, config.repoPath, projectConfig);
+  const project = ensureProject(
+    db,
+    config.repoPath,
+    projectConfig,
+    null,
+    engines.available().map((m) => m.name),
+  );
 
   // Al arrancar no puede quedar ninguna ejecución en marcha: sus procesos ya no existen.
   const recuperadas = recoverInterruptedRuns(db, bus, project.id);
@@ -113,7 +134,7 @@ export async function createApp(config: AppConfig): Promise<App> {
     console.log(`Se han devuelto a la cola ${recuperadas} tareas que quedaron a medias.`);
   }
 
-  const supervisor = new Supervisor(db, bus, project.id, engine);
+  const supervisor = new Supervisor(db, bus, project.id, config.engine ?? engines);
   const api = createApi({ db, bus, supervisor, webDir: config.webDir ?? join(process.cwd(), 'web-dist') });
 
   let server: Server | null = null;
@@ -121,7 +142,7 @@ export async function createApp(config: AppConfig): Promise<App> {
   return {
     db,
     bus,
-    engine,
+    engines,
     supervisor,
     project,
     get server() {
@@ -129,11 +150,23 @@ export async function createApp(config: AppConfig): Promise<App> {
     },
 
     async start() {
-      const comprobacion = await engine.check();
-      if (!comprobacion.ok) {
-        throw new Error(`El motor no está disponible: ${comprobacion.error}`);
+      const comprobaciones = await engines.check();
+      const utilizables = comprobaciones.filter((c) => c.ok);
+
+      if (utilizables.length === 0) {
+        const motivos = [
+          ...comprobaciones.map((c) => `${c.engine}: ${c.error}`),
+          ...engines.unavailable().map((u) => `${u.engine}: ${u.reason}`),
+        ];
+        throw new Error(['No hay ningún motor disponible.', ...motivos].join('\n'));
       }
-      console.log(`Motor listo: ${engine.name} ${comprobacion.version ?? ''}`.trim());
+
+      for (const c of utilizables) {
+        console.log(`Motor listo: ${c.engine} ${c.version ?? ''}`.trim());
+      }
+      for (const u of engines.unavailable()) {
+        console.log(`Motor no disponible: ${u.engine}. ${u.reason}`);
+      }
 
       server = createServer(api);
       const puerto = await new Promise<number>((resolver, rechazar) => {

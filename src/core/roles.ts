@@ -1,4 +1,4 @@
-import type { AgentRole } from '../shared/types.js';
+import type { AgentRole, EngineName } from '../shared/types.js';
 
 /**
  * Configuración por omisión de cada rol: qué herramientas tiene y qué instrucciones
@@ -105,3 +105,19 @@ export const REGLAS_COMUNES = [
 export function instructionsFor(role: AgentRole): string {
   return ROLE_DEFAULTS[role].instructions + '\n' + REGLAS_COMUNES;
 }
+
+/**
+ * Motor con el que se ejecuta cada rol por omisión.
+ *
+ * La revisión va con un motor distinto del que construye: dos proveedores distintos
+ * revisando el trabajo del otro detectan más fallos que uno revisándose a sí mismo, y
+ * reparte el consumo entre las dos suscripciones (decisión D34).
+ *
+ * Si el motor preferido no está instalado, el rol cae a Claude Code.
+ */
+export const ENGINE_POR_ROL: Record<AgentRole, EngineName> = {
+  orchestrator: 'claude_code',
+  builder: 'claude_code',
+  reviewer: 'codex',
+  researcher: 'claude_code',
+};
