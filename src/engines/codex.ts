@@ -11,6 +11,7 @@ import type {
   EngineRunOutcome,
   EngineRunRequest,
 } from './types.js';
+import { describirUsoDeHerramienta, recortar } from './progreso.js';
 
 const execFileAsync = promisify(execFile);
 

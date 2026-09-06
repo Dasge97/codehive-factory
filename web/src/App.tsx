@@ -16,7 +16,6 @@ import { Cabecera } from './components/Cabecera';
 import { Chat } from './components/Chat';
 import { Detalle } from './components/Detalle';
 import { PanelAgente, pasosPorAgente } from './components/PanelAgente';
-import { Recorrido, pasoDeLaTarea, type PasoId } from './components/Recorrido';
 import { Tablero, TrabajoDelProyecto } from './components/Tareas';
 
 type SeccionMovil = 'pedir' | 'equipo' | 'trabajo';
@@ -32,8 +31,10 @@ export function App() {
   const [motores, setMotores] = useState<MotoresDisponibles | null>(null);
 
   const [ajustesAbiertos, setAjustesAbiertos] = useState(false);
+  // El trabajo vive en un cajón lateral que se abre cuando hace falta: el sitio de la
+  // pantalla es para los agentes.
+  const [trabajoAbierto, setTrabajoAbierto] = useState(false);
   const [seccion, setSeccion] = useState<SeccionMovil>('pedir');
-  const [paso, setPaso] = useState<PasoId | 'atascado' | null>(null);
   const [verTablero, setVerTablero] = useState(false);
   // El borrador vive aquí para que no se pierda al cambiar de sección en el móvil.
   const [borrador, setBorrador] = useState('');
@@ -150,14 +151,7 @@ export function App() {
 
   // -------------------------------------------------------------- derivados
 
-  const integrables = useMemo(() => resumen?.integrable.map((t) => t.id) ?? [], [resumen]);
   const pasos = useMemo(() => pasosPorAgente(eventos), [eventos]);
-
-  const tareasDelPaso = useMemo(() => {
-    if (!paso) return tareas;
-    const conjunto = new Set(integrables);
-    return tareas.filter((t) => pasoDeLaTarea(t, conjunto) === paso);
-  }, [tareas, paso, integrables]);
 
   const orquestador = agentes.find((a) => a.role === 'orchestrator');
   const equipo = agentes.filter((a) => a.role !== 'orchestrator');
@@ -192,6 +186,7 @@ export function App() {
 
   const autorizaciones = resumen.snapshot.pending_approvals;
   const uso = resumen.usage.find((u) => u.engine === 'claude_code');
+  const abiertas = tareas.filter((t) => t.status !== 'cancelled' && t.status !== 'done').length;
   const atascadas = tareas.filter((t) => t.status === 'blocked').length;
 
   return (
@@ -202,16 +197,11 @@ export function App() {
         tema={tema}
         alCambiarTema={() => setTema(tema === 'oscuro' ? 'claro' : tema === 'claro' ? 'sistema' : 'oscuro')}
         alAbrirAjustes={() => setAjustesAbiertos(true)}
-      />
-
-      <Recorrido
-        tareas={tareas}
-        integrables={integrables}
-        pasoSeleccionado={paso}
-        alSeleccionar={(p) => {
-          setPaso(p);
-          setSeccion('trabajo');
-        }}
+        trabajoAbierto={trabajoAbierto}
+        alAlternarTrabajo={() => setTrabajoAbierto((v) => !v)}
+        tareasAbiertas={abiertas}
+        tareasAtascadas={atascadas}
+        listasParaIntegrar={resumen.integrable.length}
       />
 
       <div className="avisos">
@@ -274,7 +264,7 @@ export function App() {
 
       <div className="cuerpo" data-seccion={seccion}>
         <div className="columna-equipo izquierda">
-          {equipo.slice(0, 2).map((agente) => (
+          {equipo.slice(0, Math.ceil(equipo.length / 2)).map((agente) => (
             <PanelAgente
               key={agente.id}
               agente={agente}
@@ -313,7 +303,7 @@ export function App() {
         </div>
 
         <div className="columna-equipo derecha">
-          {equipo.slice(2).map((agente) => (
+          {equipo.slice(Math.ceil(equipo.length / 2)).map((agente) => (
             <PanelAgente
               key={agente.id}
               agente={agente}
@@ -323,33 +313,49 @@ export function App() {
             />
           ))}
         </div>
-
-        <div className="columna-trabajo">
-          {verTablero ? (
-            <>
-              <Tablero tareas={tareas} alAbrir={(id) => void abrirTarea(id)} />
-              <button className="boton pequeno" onClick={() => setVerTablero(false)}>
-                Volver a la lista
-              </button>
-            </>
-          ) : (
-            <TrabajoDelProyecto
-              tareas={tareasDelPaso}
-              agentes={agentes}
-              agenteSeleccionado={null}
-              alAbrir={(id) => void abrirTarea(id)}
-              filtro={paso ? { paso, alQuitar: () => setPaso(null) } : null}
-              accionExtra={
-                <button className="boton pequeno" onClick={() => setVerTablero(true)}>
-                  Ver por estados
-                </button>
-              }
-            />
-          )}
-
-          <Actividad eventos={eventos} alAbrirTarea={(id) => void abrirTarea(id)} />
-        </div>
       </div>
+
+      {/*
+        El estado del trabajo vive en un cajón: se consulta cuando hace falta y no roba
+        sitio a los agentes el resto del tiempo.
+      */}
+      {trabajoAbierto && (
+        <div className="cajon-fondo" onClick={() => setTrabajoAbierto(false)}>
+          <aside className="cajon" onClick={(e) => e.stopPropagation()} aria-label="Trabajo del proyecto">
+            <header>
+              <h2>Trabajo del proyecto</h2>
+              <button className="boton pequeno" onClick={() => setTrabajoAbierto(false)}>
+                Cerrar el trabajo
+              </button>
+            </header>
+
+            <div className="cajon-contenido">
+              {verTablero ? (
+                <>
+                  <Tablero tareas={tareas} alAbrir={(id) => void abrirTarea(id)} />
+                  <button className="boton pequeno" onClick={() => setVerTablero(false)}>
+                    Volver a la lista
+                  </button>
+                </>
+              ) : (
+                <TrabajoDelProyecto
+                  tareas={tareas}
+                  agentes={agentes}
+                  agenteSeleccionado={null}
+                  alAbrir={(id) => void abrirTarea(id)}
+                  accionExtra={
+                    <button className="boton pequeno" onClick={() => setVerTablero(true)}>
+                      Ver por estados
+                    </button>
+                  }
+                />
+              )}
+
+              <Actividad eventos={eventos} alAbrirTarea={(id) => void abrirTarea(id)} />
+            </div>
+          </aside>
+        </div>
+      )}
 
       <nav className="nav-movil">
         <button aria-current={seccion === 'pedir' ? 'page' : undefined} onClick={() => setSeccion('pedir')}>
@@ -359,7 +365,10 @@ export function App() {
         <button aria-current={seccion === 'equipo' ? 'page' : undefined} onClick={() => setSeccion('equipo')}>
           Equipo
         </button>
-        <button aria-current={seccion === 'trabajo' ? 'page' : undefined} onClick={() => setSeccion('trabajo')}>
+        <button
+          aria-current={trabajoAbierto ? 'page' : undefined}
+          onClick={() => setTrabajoAbierto(true)}
+        >
           Trabajo
           {atascadas > 0 && <span className="senal" title={`${atascadas} tareas atascadas`} />}
         </button>

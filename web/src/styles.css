@@ -47,6 +47,17 @@
   --radio-pequeno: 6px;
   --sombra: 0 1px 2px rgba(20, 24, 32, 0.06), 0 4px 12px rgba(20, 24, 32, 0.05);
 
+
+  /* Un color por rol, para distinguir los paneles de un vistazo. */
+  --rol-orquestador: #b8860b;
+  --rol-orquestador-suave: #fbf0d6;
+  --rol-builder: #2f6fb5;
+  --rol-builder-suave: #ddeaf8;
+  --rol-reviewer: #7a4fb8;
+  --rol-reviewer-suave: #e9e0f8;
+  --rol-investigador: #2f8b6a;
+  --rol-investigador-suave: #d9f0e6;
+
   --fuente: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --fuente-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
 }
@@ -497,6 +508,44 @@ button {
 
 .bienvenida strong {
   color: var(--texto);
+}
+
+.texto-formateado p {
+  margin: 0 0 6px;
+}
+
+.texto-formateado p:last-child {
+  margin-bottom: 0;
+}
+
+.texto-formateado .salto {
+  display: block;
+  height: 4px;
+}
+
+.texto-formateado ul,
+.texto-formateado ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.texto-formateado li {
+  margin-bottom: 3px;
+}
+
+.texto-formateado code {
+  font-family: var(--fuente-mono);
+  font-size: 12px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borde);
+  border-radius: 3px;
+  padding: 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.mensaje.del-creador .texto-formateado code {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: transparent;
 }
 
 .mensaje.pensando {
@@ -1308,4 +1357,80 @@ details > summary {
     white-space: normal;
   }
 }
+/* ------------------------------------------------------------------ */
+/* Cajón del trabajo                                                   */
+/* ------------------------------------------------------------------ */
+
+.boton-trabajo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.boton-trabajo.activo {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+  color: var(--acento-texto);
+}
+
+.boton-trabajo .cuenta {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  background: var(--superficie-2);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+
+.boton-trabajo .punto {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.boton-trabajo .punto.atascado { background: var(--blocked); }
+.boton-trabajo .punto.listo { background: var(--done); }
+
+.cajon-fondo {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.4);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 15;
+}
+
+.cajon {
+  width: min(560px, 100%);
+  height: 100%;
+  background: var(--fondo);
+  border-left: 1px solid var(--borde);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cajon > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+}
+
+.cajon > header h2 {
+  margin: 0;
+  font-size: 15px;
+  flex: 1;
+}
+
+.cajon-contenido {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 

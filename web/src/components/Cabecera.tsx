@@ -6,6 +6,12 @@ interface Props {
   tema: 'sistema' | 'claro' | 'oscuro';
   alCambiarTema: () => void;
   alAbrirAjustes: () => void;
+  /** El cajón del trabajo está abierto. */
+  trabajoAbierto: boolean;
+  alAlternarTrabajo: () => void;
+  tareasAbiertas: number;
+  tareasAtascadas: number;
+  listasParaIntegrar: number;
 }
 
 /**
@@ -15,7 +21,18 @@ interface Props {
  * que la ruta del repositorio y la rama están siempre visibles, no escondidas en un panel
  * de ajustes.
  */
-export function Cabecera({ resumen, agentes, tema, alCambiarTema, alAbrirAjustes }: Props) {
+export function Cabecera({
+  resumen,
+  agentes,
+  tema,
+  alCambiarTema,
+  alAbrirAjustes,
+  trabajoAbierto,
+  alAlternarTrabajo,
+  tareasAbiertas,
+  tareasAtascadas,
+  listasParaIntegrar,
+}: Props) {
   const trabajando = agentes.filter((a) => a.busy_workers > 0).length;
   const uso = resumen.usage.find((u) => u.engine === 'claude_code');
 
@@ -42,6 +59,21 @@ export function Cabecera({ resumen, agentes, tema, alCambiarTema, alAbrirAjustes
 
       <div className="cabecera-acciones">
         <Consumo uso={uso} />
+
+        <button
+          className={`boton pequeno boton-trabajo${trabajoAbierto ? ' activo' : ''}`}
+          onClick={alAlternarTrabajo}
+          aria-pressed={trabajoAbierto}
+          aria-label="Ver el trabajo del proyecto"
+        >
+          Trabajo
+          {tareasAbiertas > 0 && <span className="cuenta">{tareasAbiertas}</span>}
+          {tareasAtascadas > 0 && <span className="punto atascado" title={`${tareasAtascadas} atascadas`} />}
+          {listasParaIntegrar > 0 && (
+            <span className="punto listo" title={`${listasParaIntegrar} listas para integrar`} />
+          )}
+        </button>
+
         <button className="boton pequeno" onClick={alAbrirAjustes}>Ajustes</button>
         <button
           className="boton pequeno"

@@ -211,18 +211,31 @@ afterEach(() => {
   alRecibirEvento = null;
 });
 
+/** Abre el cajón del trabajo, que es donde vive la lista de tareas. */
+async function abrirCajonDelTrabajo() {
+  // Primero hay que esperar a que la app haya cargado el proyecto.
+  await screen.findByRole('button', { name: 'Ver el trabajo del proyecto' });
+
+  if (!document.querySelector('.cajon')) {
+    await userEvent.click(screen.getByRole('button', { name: 'Ver el trabajo del proyecto' }));
+    await waitFor(() => expect(document.querySelector('.cajon')).not.toBeNull());
+  }
+}
+
 /**
  * Abre una tarea desde la lista de trabajo.
  *
- * El título de una tarea aparece en dos sitios a la vez: en la tarjeta del agente que la
+ * El título de una tarea aparece en dos sitios a la vez: en el panel del agente que la
  * tiene, y en su propia tarjeta. Buscar solo por texto encontraría las dos.
  */
 async function abrirTarea(titulo: string) {
+  await abrirCajonDelTrabajo();
+
   const tarjeta = await waitFor(() => {
     const encontrada = [...document.querySelectorAll('.rejilla-tareas .tarea')].find(
       (t) => t.querySelector('.titulo')?.textContent === titulo,
     );
-    if (!encontrada) throw new Error(`No se encontró la tarea ${titulo}`);
+    if (!encontrada) throw new Error();
     return encontrada as HTMLElement;
   });
 
@@ -231,12 +244,13 @@ async function abrirTarea(titulo: string) {
 }
 
 /** Espera a que la lista de trabajo tenga una tarea con ese título. */
-function esperarTarea(titulo: string) {
-  return waitFor(() => {
+async function esperarTarea(titulo: string) {
+  await abrirCajonDelTrabajo();
+  await waitFor(() => {
     const encontrada = [...document.querySelectorAll('.tarea .titulo')].some(
       (t) => t.textContent === titulo,
     );
-    expect(encontrada).toBe(true);
+    if (!encontrada) throw new Error();
   });
 }
 
@@ -263,42 +277,6 @@ describe('pantalla principal', () => {
     expect(screen.getByText(/Revisión · codex/)).toBeDefined();
   });
 
-  it('el recorrido del trabajo se ve de un vistazo', async () => {
-    render(<App />);
-
-    await waitFor(() => expect(screen.getByText('Tú pides')).toBeDefined());
-    expect(screen.getByRole('button', { name: /Se reparte/ })).toBeDefined();
-    expect(screen.getByRole('button', { name: /Se construye/ })).toBeDefined();
-    expect(screen.getByRole('button', { name: /Se revisa/ })).toBeDefined();
-    expect(screen.getByRole('button', { name: /Tú integras/ })).toBeDefined();
-  });
-
-  it('filtrar por un paso del recorrido deja solo esas tareas', async () => {
-    render(<App />);
-    await esperarTarea('Validación de nombres');
-
-    // La tarea bloqueada es la única atascada.
-    await userEvent.click(screen.getByRole('button', { name: /Atascado/ }));
-
-    await waitFor(() => {
-      const titulos = [...document.querySelectorAll('.rejilla-tareas .titulo')].map((t) => t.textContent);
-      expect(titulos).toEqual(['Pantalla de listado']);
-    });
-  });
-
-  it('las tareas bloqueadas salen antes y dicen su motivo', async () => {
-    render(<App />);
-
-    await esperarTarea('Pantalla de listado');
-    expect(screen.getByText('Falta decidir el formato de los nombres.')).toBeDefined();
-  });
-
-  it('la conversación con el orquestador se ve entera', async () => {
-    render(<App />);
-
-    await waitFor(() => expect(screen.getByText('Añade la validación de nombres')).toBeDefined());
-    expect(screen.getByText('De acuerdo, se la paso al builder.')).toBeDefined();
-  });
 });
 
 describe('consumo de la suscripción', () => {

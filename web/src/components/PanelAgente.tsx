@@ -2,6 +2,20 @@ import { useEffect, useRef } from 'react';
 import type { AgentView, SystemEvent, Task } from '../api';
 import { hora } from './Estado';
 
+/**
+ * Color de cada rol.
+ *
+ * Cada agente tiene el suyo para poder distinguirlos de un vistazo cuando hay varios
+ * paneles a la vez. Se aplica al borde y al indicador, no al fondo, para no pelearse con
+ * los colores de estado de las tareas.
+ */
+export const COLOR_ROL: Record<AgentView['role'], string> = {
+  orchestrator: 'orquestador',
+  builder: 'builder',
+  reviewer: 'reviewer',
+  researcher: 'investigador',
+};
+
 const NOMBRE_ROL: Record<AgentView['role'], string> = {
   orchestrator: 'Orquestación',
   builder: 'Construcción',
@@ -115,7 +129,10 @@ export function PanelAgente({ agente, tareas, pasos, alAbrirTarea, compacto = fa
   }, [pasos.length]);
 
   return (
-    <section className={`agente-panel${trabajando ? ' activo' : ''}${compacto ? ' compacto' : ''}`}>
+    <section
+      className={`agente-panel${trabajando ? ' activo' : ''}${compacto ? ' compacto' : ''}`}
+      data-rol={COLOR_ROL[agente.role]}
+    >
       <header>
         <span className={`indicador${trabajando ? ' latiendo' : ''}`} aria-hidden="true" />
         <div className="quien">

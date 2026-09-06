@@ -13,6 +13,7 @@ import type {
   EngineUsageReport,
   PermissionDenial,
 } from './types.js';
+import { describirResultado, describirUsoDeHerramienta, recortar } from './progreso.js';
 
 const execFileAsync = promisify(execFile);
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../api';
 import { hora } from './Estado';
-import { PASOS } from './Recorrido';
+import { Texto } from './Texto';
 
 interface Props {
   mensajes: ChatMessage[];
@@ -81,7 +81,7 @@ export function Chat({
             <span className="autor">
               {mensaje.author === 'creator' ? 'Tú' : 'Orquestador'} · {hora(mensaje.created_at)}
             </span>
-            {mensaje.body}
+            <Texto>{mensaje.body}</Texto>
           </div>
         ))}
 
@@ -151,11 +151,18 @@ function Bienvenida({ proyecto }: { proyecto: Props['proyecto'] }) {
 
       <h3>Qué pasa cuando lo pidas</h3>
       <ol>
-        {PASOS.map((paso) => (
-          <li key={paso.id}>
-            <strong>{paso.titulo}.</strong> {paso.explicacion}
-          </li>
-        ))}
+        <li>
+          <strong>Se reparte.</strong> El orquestador convierte lo que pides en tareas concretas.
+        </li>
+        <li>
+          <strong>Se construye.</strong> Un agente escribe el código en una rama aparte y publica un commit.
+        </li>
+        <li>
+          <strong>Se revisa.</strong> Otro agente revisa ese commit. Si encuentra un fallo, abre una corrección.
+        </li>
+        <li>
+          <strong>Tú integras.</strong> Nada llega a la rama principal sin que tú lo confirmes.
+        </li>
       </ol>
 
       <h3>Qué no pasa sin ti</h3>
