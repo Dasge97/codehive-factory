@@ -545,6 +545,80 @@ puede tomarla.
 
 ---
 
+## D34 · El motor se elige por agente, y la revisión va con el otro
+
+**Origen:** técnica, fase 2.
+
+Cada agente lleva su motor en la base de datos. Por omisión, el orquestador, el builder y
+el investigador van con Claude Code, y el reviewer con Codex. Si un motor no está
+instalado, los roles que lo pedían caen a Claude Code y el arranque lo dice por consola.
+
+**Por qué:** dos proveedores distintos revisando el trabajo del otro detectan más fallos
+que uno revisándose a sí mismo, y reparte el consumo entre las dos suscripciones.
+
+**Comprobado el 6 de septiembre de 2026:** Claude Code escribió una sección del README,
+Codex la revisó y la aprobó, y la integración pasó las verificaciones.
+
+---
+
+## D35 · Los esquemas de resultado declaran todas sus propiedades como obligatorias
+
+**Origen:** técnica, fase 2.
+
+Todos los objetos de los esquemas JSON llevan en `required` todas las claves de
+`properties`. Los campos que no se usan admiten null.
+
+**Por qué:** Codex rechaza un esquema que no lo cumpla, con un error del tipo «required is
+required to be supplied and to be an array including every key in properties». Claude Code
+acepta el mismo esquema estricto, así que uno solo vale para los dos motores.
+
+---
+
+## D36 · Solo quien construye pide apoyo, y solo un nivel
+
+**Origen:** técnica, fase 2.
+
+Únicamente las tareas de construcción y de corrección pueden pedir apoyo a otro rol. Una
+tarea de apoyo no pide más apoyo.
+
+**Por qué:** en la prueba real, una tarea de apoyo pidió otro apoyo, que pidió otro. La
+cadena crecía sola y se alejaba del objetivo. El investigador responde con lo que
+encuentra o dice que no se puede saber; el reviewer revisa lo que hay. Ninguno delega.
+
+---
+
+## D37 · Una revisión se cierra al dar su veredicto
+
+**Origen:** técnica, fase 2.
+
+Cuando el reviewer entrega sus hallazgos, o dice que no hay ninguno, su tarea queda hecha,
+aunque el agente diga que avanzó sin terminar.
+
+**Por qué:** el trabajo de una revisión es dar el veredicto sobre un commit concreto. Una
+vez dado, no queda nada que revisar de ese commit. Sin esta regla, la revisión se
+reintentaba hasta agotar sus intentos y quedaba bloqueada sin motivo.
+
+---
+
+## D38 · Codex se ejecuta fuera de su propio aislamiento en Windows
+
+**Origen:** técnica, fase 2.
+
+El adaptador de Codex lanza el motor con el aislamiento desactivado, salvo en el modo de
+solo planificar.
+
+**Por qué:** en Windows, el aislamiento propio de Codex rechaza el lanzamiento de
+PowerShell, tanto en modo de solo lectura como en modo de escritura en el espacio de
+trabajo. Con él activado, el agente no puede ejecutar nada: ni consultar el historial de
+Git ni lanzar las pruebas. En la prueba real, el reviewer terminó diciendo que no había
+podido revisar nada.
+
+**Qué sigue protegido:** el worktree separado, las instrucciones del rol, y que ningún
+agente hace push ni fusiona en la rama principal. Es el mismo razonamiento de la decisión
+D26 aplicado al otro motor.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

@@ -108,9 +108,9 @@ creador integra desde la web.
 
 ---
 
-## Fase 2 · Concurrencia, colaboración y segundo motor
+## Fase 2 · Concurrencia, colaboración y segundo motor — TERMINADA el 6 de septiembre de 2026
 
-La construye el propio sistema, con el creador dirigiendo desde el chat.
+Las ocho tareas están hechas. El sistema trabaja con Claude Code y Codex a la vez.
 
 | ID | Tarea | Estado | Hecha cuando |
 | --- | --- | --- | --- |
@@ -119,9 +119,9 @@ La construye el propio sistema, con el creador dirigiendo desde el chat.
 | F2-03 | Control de resultados tardíos. | Hecha | Un resultado de una ejecución ya sustituida no cambia el estado vigente. |
 | F2-04 | Mensajes entre agentes: consulta, aviso, petición de apoyo y escalado. | Hecha | Un builder pide apoyo, se crea la tarea del investigador y la suya espera. |
 | F2-05 | Directorio de equipo consultable por los agentes. | Hecha | El encargo de cada agente lleva quién está disponible y con qué está. |
-| F2-06 | Adaptador de Codex. | Pendiente | Pasa las mismas comprobaciones de la fase 0 y declara sus capacidades. |
-| F2-07 | Motor configurable por agente desde la web. | Pendiente | El reviewer se ejecuta con Codex mientras el builder usa Claude Code. |
-| F2-08 | Pruebas de aceptación de la fase 2. | Parcial | P2-01 a P2-05 pasan. P2-06 espera al adaptador de Codex. |
+| F2-06 | Adaptador de Codex. | Hecha | Pasa las mismas comprobaciones de la fase 0 y declara sus capacidades. |
+| F2-07 | Motor configurable por agente. | Hecha | El reviewer se ejecuta con Codex mientras el builder usa Claude Code. |
+| F2-08 | Pruebas de aceptación de la fase 2. | Hecha | Las seis pruebas de la fase 2 pasan. |
 
 ---
 

@@ -5,8 +5,9 @@ orquestador; un equipo de agentes construye, revisa y corrige el proyecto de for
 concurrente. El creador ve el estado en una web y puede cambiar el rumbo mientras el
 trabajo avanza.
 
-Estado: el ciclo completo funciona. El creador pide algo por el chat, el orquestador
-reparte, el builder construye, el reviewer revisa y el creador integra desde la web.
+Estado: las fases 0, 1 y 2 están terminadas. El creador pide algo por el chat, el
+orquestador reparte, el builder construye con Claude Code, el reviewer revisa con Codex y
+el creador integra desde la web.
 
 ## Documentación
 

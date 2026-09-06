@@ -161,6 +161,17 @@ consultable desde la web sin leer registros a mano.
 
 ## Fase 2
 
+Las seis pruebas pasan. Estado a 6 de septiembre de 2026.
+
+| Prueba | Estado | Dónde se comprueba |
+| --- | --- | --- |
+| P2-01 Dos workers del mismo rol trabajan a la vez | Pasa | `supervisor.test.ts`, bloque «dos tareas independientes avanzan a la vez». |
+| P2-02 Un worker caído se detecta y su tarea se reasigna | Pasa | `leases.test.ts`, bloque «un worker caído se detecta». |
+| P2-03 Un resultado tardío no sobrescribe el estado vigente | Pasa | `leases.test.ts`, bloque «un resultado tardío». |
+| P2-04 Un agente pide ayuda a otro | Pasa | `agent-messages.test.ts` y `runner.test.ts`, petición de apoyo de punta a punta. |
+| P2-05 Una conversación entre agentes no entra en bucle | Pasa | `agent-messages.test.ts`, escalado al sexto mensaje. |
+| P2-06 Dos motores colaboran en el mismo proyecto | Pasa con agentes reales | Ver el apartado siguiente. |
+
 ### P2-01 · Dos workers del mismo rol trabajan a la vez
 
 **Qué hay que ver.** Dos builders con tareas distintas en curso, sin conflicto de
@@ -168,49 +179,54 @@ recursos y sin reclamar la misma tarea.
 
 ### P2-02 · Un worker caído se detecta y su tarea se reasigna
 
-**Qué se hace.** Se mata un proceso worker con una tarea en curso.
+**Qué se hace.** Se deja caducar la vigencia de una asignación con la tarea en curso.
 
-**Qué hay que ver.** La vigencia de la asignación caduca, la tarea vuelve a estar
-disponible y se comprueban antes los efectos ya ejecutados por el worker perdido.
+**Qué hay que ver.** La tarea vuelve a estar disponible y otro worker la toma. Si el
+worker perdido llegó a publicar un incremento, la tarea pasa a revisión en lugar de
+volver a construirse desde cero.
 
 ### P2-03 · Un resultado tardío no sobrescribe el estado vigente
 
 **Qué se hace.** Un worker dado por perdido devuelve su resultado después de que la tarea
 se haya reasignado.
 
-**Qué hay que ver.** El resultado se registra como descartado con su motivo. El estado
-vigente no cambia. No se crean incrementos ni correcciones duplicados.
+**Qué hay que ver.** El resultado se registra como descartado con su motivo y su resumen.
+El estado vigente no cambia. No se crean incrementos duplicados.
 
 ### P2-04 · Un agente pide ayuda a otro
 
-**Qué se hace.** El builder necesita saber cómo funciona una parte del proyecto.
+**Qué se hace.** El builder declara en su resultado que necesita saber algo del proyecto.
 
-**Qué hay que ver.** La consulta, la respuesta del investigador o la subtarea creada, y la
-aplicación del resultado en el trabajo del builder. Todo el hilo visible en la web.
+**Qué hay que ver.** Una tarea de apoyo con responsable, puesta como dependencia de la
+tarea que la pidió. La tarea original espera en lugar de reintentar a ciegas. Mientras el
+apoyo esté abierto, la tarea no se puede reclamar, así que no pide lo mismo dos veces.
 
 ### P2-05 · Una conversación entre agentes no entra en bucle
 
 **Qué se hace.** Dos agentes intercambian mensajes sin llegar a una conclusión.
 
-**Qué hay que ver.** Al alcanzar el límite de mensajes, el asunto se escala al orquestador
-con la evidencia acumulada.
+**Qué hay que ver.** Al séptimo mensaje, el asunto se escala al orquestador con lo que se
+ha dicho hasta ese punto.
 
 ### P2-06 · Dos motores colaboran en el mismo proyecto
 
 **Qué se hace.** El builder se configura con Claude Code y el reviewer con Codex.
 
 **Qué hay que ver.** El reviewer revisa un incremento producido por el otro motor y
-publica hallazgos en el mismo formato.
+publica su veredicto en el mismo formato.
 
----
+## Segunda ejecución real, con los dos motores
 
-## Qué se mide
+El 6 de septiembre de 2026 el creador pidió por el chat una sección para el fichero
+README.md. Claude Code la escribió y publicó su commit. Codex revisó ese commit y lo
+aprobó sin hallazgos. El creador integró: la rama se fusionó y `npm test` pasó.
 
-La validación no se limita a que las pruebas pasen. Se registra también:
+En las ejecuciones se ve la diferencia entre los dos motores: Claude Code informa del
+coste en dinero de su ejecución, y Codex solo informa de los tokens, tal como declara su
+adaptador en la lista de capacidades.
 
-- Cuántas tareas se completan y se integran sin intervención del creador.
-- Cuántas quedan bloqueadas y por qué.
-- Cuántas correcciones necesita de media un incremento antes de aprobarse.
-- Cuánto tiempo pasa una tarea esperando en la cola.
-
-Mantener a todos los agentes ocupados no es una medida de éxito.
+**Tres fallos que salieron de esta prueba**, corregidos en las decisiones D35, D36, D37 y
+D38: Codex rechazaba los esquemas de resultado por no declarar todas las propiedades como
+obligatorias, las peticiones de apoyo se encadenaban sin fin, y una revisión no se cerraba
+al dar su veredicto. Además, en Windows el aislamiento propio de Codex impedía al reviewer
+ejecutar cualquier orden, así que no podía ni mirar el commit.
