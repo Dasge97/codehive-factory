@@ -1,0 +1,10 @@
+{
+  "name": "Code Hive Factory",
+  "main_branch": "main",
+  "verify_command": "npm test",
+  "install_command": "npm ci",
+  "max_concurrent_runs": 3,
+  "max_task_attempts": 3,
+  "run_timeout_ms": 900000,
+  "protected_paths": ["package-lock.json", ".github/**", "codehive.project.json"]
+}

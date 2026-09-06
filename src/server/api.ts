@@ -1,4 +1,6 @@
 import express, { type Express, type Request, type Response } from 'express';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Db } from '../core/db.js';
 import { EventBus, listEvents, listRecentEvents } from '../core/events.js';
 import { integrableTasks, integrateTask } from '../core/integration.js';
@@ -15,6 +17,8 @@ export interface ApiDeps {
   db: Db;
   bus: EventBus;
   supervisor: Supervisor;
+  /** Carpeta con la web ya compilada. Si no existe, el servidor solo ofrece la API. */
+  webDir?: string;
 }
 
 /** Lee un parámetro de la ruta como texto. Express 5 los tipa de forma más laxa. */
@@ -33,7 +37,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>) {
   };
 }
 
-export function createApi({ db, bus, supervisor }: ApiDeps): Express {
+export function createApi({ db, bus, supervisor, webDir }: ApiDeps): Express {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
@@ -240,9 +244,24 @@ export function createApi({ db, bus, supervisor }: ApiDeps): Express {
     res.json(listRecentEvents(db, req.params.id, Number(req.query['limit'] ?? 50)));
   });
 
-  app.use((_req, res) => {
+  app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Ruta no encontrada.' });
   });
+
+  // La web compilada se sirve desde el mismo proceso, así que basta con abrir el puerto
+  // del servicio para tenerla (decisión D06).
+  if (webDir && existsSync(webDir)) {
+    app.use(express.static(webDir));
+    app.get(/.*/, (_req, res) => {
+      res.sendFile(join(webDir, 'index.html'));
+    });
+  } else {
+    app.use((_req, res) => {
+      res.status(404).json({
+        error: 'La web no está compilada. Ejecuta npm run build:web, o npm run dev:web para desarrollo.',
+      });
+    });
+  }
 
   return app;
 }

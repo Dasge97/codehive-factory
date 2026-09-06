@@ -35,6 +35,8 @@ export interface AppConfig {
   repoPath: string;
   port: number;
   engine?: Engine;
+  /** Carpeta con la web compilada. Por omisión, `web-dist` junto al proceso. */
+  webDir?: string;
 }
 
 export interface App {
@@ -112,7 +114,7 @@ export async function createApp(config: AppConfig): Promise<App> {
   }
 
   const supervisor = new Supervisor(db, bus, project.id, engine);
-  const api = createApi({ db, bus, supervisor });
+  const api = createApi({ db, bus, supervisor, webDir: config.webDir ?? join(process.cwd(), 'web-dist') });
 
   let server: Server | null = null;
 
