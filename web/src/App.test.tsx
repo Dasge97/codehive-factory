@@ -13,6 +13,9 @@ let tareas: Array<Record<string, unknown>>;
 let mensajes: Array<Record<string, unknown>>;
 let autorizaciones: Array<Record<string, unknown>>;
 let consumo: Array<Record<string, unknown>>;
+let estadoProyecto: string;
+let motoresInstalados: Array<Record<string, unknown>>;
+let motoresAusentes: Array<Record<string, unknown>>;
 let peticiones: Array<{ metodo: string; ruta: string; cuerpo: unknown }>;
 
 /** Escuchadores del canal de eventos, para poder empujar eventos desde una prueba. */
@@ -55,7 +58,9 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
     return respuesta({
       project: {
         id: PROYECTO, name: 'Code Hive Factory', goal: 'Tener el área de proyectos',
-        repo_path: '/proyecto', main_branch: 'main', verify_command: 'npm test', status: 'active',
+        repo_path: '/proyecto', main_branch: 'main', verify_command: 'npm test',
+        install_command: 'npm ci', max_concurrent_runs: 3, max_task_attempts: 3,
+        status: estadoProyecto,
       },
       snapshot: { goal: 'Tener el área de proyectos', decisions: [], pending_approvals: autorizaciones },
       integrable: [],
@@ -69,12 +74,13 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
     return respuesta([
       {
         id: 'agt_1', name: 'Builder', role: 'builder', engine: 'claude_code', model: null,
-        allowed_tools: ['Read', 'Write'], max_workers: 1, busy_workers: 1,
+        allowed_tools: ['Read', 'Write'], max_workers: 1, enabled: 1, busy_workers: 1,
         current_tasks: ['tsk_1'], queue_length: 2,
       },
       {
         id: 'agt_2', name: 'Reviewer', role: 'reviewer', engine: 'codex', model: null,
-        allowed_tools: ['Read'], max_workers: 1, busy_workers: 0, current_tasks: [], queue_length: 0,
+        allowed_tools: ['Read'], max_workers: 1, enabled: 1, busy_workers: 0,
+        current_tasks: [], queue_length: 0,
       },
     ]);
   }
@@ -89,6 +95,17 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
   }
 
   if (ruta.startsWith(`/api/projects/${PROYECTO}/activity`)) return respuesta([]);
+
+  if (ruta === '/api/engines') {
+    return respuesta({ available: motoresInstalados, unavailable: motoresAusentes });
+  }
+
+  if (ruta.endsWith('/pause')) {
+    estadoProyecto = (cuerpo as { paused: boolean }).paused ? 'paused' : 'active';
+    return respuesta({ status: estadoProyecto });
+  }
+
+  if (ruta.startsWith('/api/agents/')) return respuesta({ ok: true });
 
   if (ruta.startsWith('/api/tasks/')) {
     const id = ruta.split('/')[3]!;
@@ -136,6 +153,24 @@ beforeEach(() => {
   peticiones = [];
   autorizaciones = [];
   consumo = [];
+  estadoProyecto = 'active';
+  motoresInstalados = [
+    {
+      name: 'claude_code',
+      capabilities: {
+        resumeSession: true, resultSchema: true, usageReporting: true, costReporting: true,
+        budgetLimit: true, permissionDenials: true, stop: true,
+      },
+    },
+    {
+      name: 'codex',
+      capabilities: {
+        resumeSession: true, resultSchema: true, usageReporting: false, costReporting: false,
+        budgetLimit: false, permissionDenials: false, stop: true,
+      },
+    },
+  ];
+  motoresAusentes = [];
   mensajes = [
     { id: 'm1', author: 'creator', body: 'Añade la validación de nombres', created_at: new Date().toISOString() },
     { id: 'm2', author: 'orchestrator', body: 'De acuerdo, se la paso al builder.', created_at: new Date().toISOString() },
@@ -360,5 +395,93 @@ describe('eventos en vivo', () => {
       expect(peticiones.filter((p) => p.ruta.endsWith('/tasks')).length).toBeGreaterThan(antes);
     });
     await esperarTarea('Validación de nombres, corregida');
+  });
+});
+
+describe('ajustes', () => {
+  /** Abre el panel de ajustes desde la cabecera. */
+  async function abrirAjustes() {
+    await esperarTarea('Validación de nombres');
+    await userEvent.click(screen.getByRole('button', { name: 'Ajustes' }));
+    return waitFor(() => screen.getByRole('dialog', { name: 'Ajustes' }));
+  }
+
+  it('muestra la configuración del proyecto', async () => {
+    render(<App />);
+    const panel = await abrirAjustes();
+
+    expect(panel.textContent).toContain('/proyecto');
+    expect(panel.textContent).toContain('npm test');
+    expect(panel.textContent).toContain('activo');
+  });
+
+  it('el motor de cada agente se puede cambiar entre los instalados', async () => {
+    render(<App />);
+    await abrirAjustes();
+
+    const selectores = screen.getAllByRole('combobox');
+    expect(selectores).toHaveLength(2);
+
+    // Solo se ofrecen los motores que están instalados de verdad.
+    const opciones = [...selectores[0]!.querySelectorAll('option')].map((o) => o.textContent);
+    expect(opciones).toEqual(['claude_code', 'codex']);
+
+    await userEvent.selectOptions(selectores[0]!, 'codex');
+
+    await waitFor(() => {
+      const envio = peticiones.find((p) => p.metodo === 'POST' && p.ruta.endsWith('/engine'));
+      expect(envio).toBeDefined();
+      expect((envio!.cuerpo as { engine: string }).engine).toBe('codex');
+    });
+  });
+
+  it('un motor que no está instalado se explica, no se ofrece', async () => {
+    motoresInstalados = motoresInstalados.slice(0, 1);
+    motoresAusentes = [{ engine: 'codex', reason: 'No se encuentra el ejecutable de Codex.' }];
+
+    render(<App />);
+    const panel = await abrirAjustes();
+
+    expect(panel.textContent).toContain('No se encuentra el ejecutable de Codex.');
+    // Con un solo motor no hay nada que elegir.
+    expect(screen.getAllByRole('combobox')[0]).toHaveProperty('disabled', true);
+  });
+
+  it('dice qué sabe hacer cada motor, sin prometer lo que no hace', async () => {
+    render(<App />);
+    const panel = await abrirAjustes();
+
+    expect(panel.textContent).toContain('informa del coste');
+    expect(panel.textContent).toContain('no informa del consumo');
+  });
+
+  it('pausar el proyecto lo dice en la pantalla principal', async () => {
+    render(<App />);
+    await abrirAjustes();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Pausar el proyecto' }));
+
+    await waitFor(() => {
+      const envio = peticiones.find((p) => p.metodo === 'POST' && p.ruta.endsWith('/pause'));
+      expect((envio!.cuerpo as { paused: boolean }).paused).toBe(true);
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+    await waitFor(() => expect(screen.getByText(/El proyecto está en pausa/)).toBeDefined());
+  });
+
+  it('cambiar el número de workers llega al servidor', async () => {
+    render(<App />);
+    await abrirAjustes();
+
+    const campos = screen.getAllByRole('spinbutton');
+    await userEvent.clear(campos[0]!);
+    await userEvent.type(campos[0]!, '3');
+    await userEvent.tab();
+
+    await waitFor(() => {
+      const envio = peticiones.find((p) => p.metodo === 'POST' && p.ruta.endsWith('/workers'));
+      expect((envio!.cuerpo as { max_workers: number }).max_workers).toBe(3);
+    });
   });
 });

@@ -135,7 +135,13 @@ export async function createApp(config: AppConfig): Promise<App> {
   }
 
   const supervisor = new Supervisor(db, bus, project.id, config.engine ?? engines);
-  const api = createApi({ db, bus, supervisor, webDir: config.webDir ?? join(process.cwd(), 'web-dist') });
+  const api = createApi({
+    db,
+    bus,
+    supervisor,
+    engines,
+    webDir: config.webDir ?? join(process.cwd(), 'web-dist'),
+  });
 
   let server: Server | null = null;
 

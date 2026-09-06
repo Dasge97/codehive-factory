@@ -167,3 +167,80 @@ export function currentRevision(db: Db, projectId: string): number {
     .get(projectId) as { max: number };
   return fila.max;
 }
+
+// ---------------------------------------------------------------------------
+// Cambios sobre un proyecto ya registrado
+// ---------------------------------------------------------------------------
+
+export interface UpdateProjectInput {
+  goal?: string | null;
+  verify_command?: string | null;
+  install_command?: string | null;
+  max_concurrent_runs?: number;
+  max_task_attempts?: number;
+  run_timeout_ms?: number;
+  status?: Project['status'];
+}
+
+/** Cambia la configuración de un proyecto. Solo toca los campos que se le pasan. */
+export function updateProject(db: Db, id: string, cambios: UpdateProjectInput): Project {
+  const columnas: string[] = [];
+  const valores: unknown[] = [];
+
+  for (const [campo, valor] of Object.entries(cambios)) {
+    if (valor === undefined) continue;
+    columnas.push(`${campo} = ?`);
+    valores.push(valor);
+  }
+
+  if (columnas.length > 0) {
+    columnas.push('updated_at = ?');
+    valores.push(now(), id);
+    db.prepare(`UPDATE projects SET ${columnas.join(', ')} WHERE id = ?`).run(...valores);
+  }
+
+  return requireProject(db, id);
+}
+
+/**
+ * Pone en pausa un proyecto o lo reanuda.
+ *
+ * Un proyecto en pausa conserva todo su trabajo: el supervisor deja de arrancar workers,
+ * pero las tareas siguen donde estaban y siguen viéndose en la web.
+ */
+export function setProjectStatus(db: Db, id: string, status: Project['status']): Project {
+  return updateProject(db, id, { status });
+}
+
+/** Cambia el motor con el que se ejecuta un agente. */
+export function setAgentEngine(db: Db, agentId: string, engine: EngineName): Agent {
+  db.prepare('UPDATE agents SET engine = ?, updated_at = ? WHERE id = ?').run(engine, now(), agentId);
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent | undefined;
+  if (!agent) throw new Error(`El agente ${agentId} no existe.`);
+  return agent;
+}
+
+/** Activa o desactiva un agente. Un agente desactivado no recibe trabajo. */
+export function setAgentEnabled(db: Db, agentId: string, enabled: boolean): Agent {
+  db.prepare('UPDATE agents SET enabled = ?, updated_at = ? WHERE id = ?').run(
+    enabled ? 1 : 0,
+    now(),
+    agentId,
+  );
+  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent | undefined;
+  if (!agent) throw new Error(`El agente ${agentId} no existe.`);
+  return agent;
+}
+
+/** Cuántos workers como mucho puede tener un agente a la vez. */
+export function setAgentWorkers(db: Db, agentId: string, maxWorkers: number): Agent {
+  if (!Number.isInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 8) {
+    throw new Error('El número de workers debe ser un entero entre 1 y 8.');
+  }
+  db.prepare('UPDATE agents SET max_workers = ?, updated_at = ? WHERE id = ?').run(
+    maxWorkers,
+    now(),
+    agentId,
+  );
+  return db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent;
+}

@@ -47,6 +47,7 @@ function agente(extra: Partial<AgentView> = {}): AgentView {
     model: null,
     allowed_tools: ['Read', 'Write'],
     max_workers: 1,
+    enabled: 1,
     busy_workers: 0,
     current_tasks: [],
     queue_length: 0,

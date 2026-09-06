@@ -5,12 +5,14 @@ import {
   type AgentView,
   type ChatMessage,
   type EngineUsage,
+  type MotoresDisponibles,
   type ProjectOverview,
   type SystemEvent,
   type Task,
   type TaskDetail,
 } from './api';
 import { Actividad } from './components/Actividad';
+import { Ajustes } from './components/Ajustes';
 import { Chat } from './components/Chat';
 import { Detalle } from './components/Detalle';
 import { Equipo } from './components/Equipo';
@@ -27,6 +29,8 @@ export function App() {
   const [mensajes, setMensajes] = useState<ChatMessage[]>([]);
   const [eventos, setEventos] = useState<SystemEvent[]>([]);
   const [detalle, setDetalle] = useState<TaskDetail | null>(null);
+  const [motores, setMotores] = useState<MotoresDisponibles | null>(null);
+  const [ajustesAbiertos, setAjustesAbiertos] = useState(false);
 
   const [vista, setVista] = useState<Vista>('equipo');
   const [seccion, setSeccion] = useState<SeccionMovil>('equipo');
@@ -77,6 +81,12 @@ export function App() {
   useEffect(() => {
     void recargarTodo();
   }, [recargarTodo]);
+
+  // Los motores instalados no cambian mientras el sistema está en marcha, así que se
+  // piden una sola vez.
+  useEffect(() => {
+    api.motores().then(setMotores).catch(() => setMotores(null));
+  }, []);
 
   const recargarDetalle = useCallback(async () => {
     const id = tareaAbierta.current;
@@ -178,6 +188,10 @@ export function App() {
             </button>
           </div>
 
+          <button className="boton pequeno" onClick={() => setAjustesAbiertos(true)}>
+            Ajustes
+          </button>
+
           <button
             className="boton pequeno"
             onClick={() => setTema(tema === 'oscuro' ? 'claro' : tema === 'claro' ? 'sistema' : 'oscuro')}
@@ -206,6 +220,20 @@ export function App() {
               <div className="acciones">
                 <button className="boton pequeno" onClick={() => void abrirTarea(autorizaciones[0]!.task_id)}>
                   Ver
+                </button>
+              </div>
+            </div>
+          )}
+
+          {resumen.project.status === 'paused' && (
+            <div className="aviso desconectado">
+              El proyecto está en pausa. El trabajo en curso termina y no se arranca nada nuevo.
+              <div className="acciones">
+                <button
+                  className="boton pequeno"
+                  onClick={() => void api.pausarProyecto(resumen.project.id, false).then(recargarTodo)}
+                >
+                  Reanudar
                 </button>
               </div>
             </div>
@@ -276,6 +304,16 @@ export function App() {
           {autorizaciones.length > 0 && <span className="senal" title="Hay algo que decidir" />}
         </button>
       </nav>
+
+      {ajustesAbiertos && (
+        <Ajustes
+          resumen={resumen}
+          agentes={agentes}
+          motores={motores}
+          alCerrar={() => setAjustesAbiertos(false)}
+          alRecargar={() => void recargarTodo()}
+        />
+      )}
 
       {detalle && (
         <Detalle

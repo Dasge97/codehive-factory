@@ -82,7 +82,20 @@ identificador recibido.
 Pedir una pausa no equivale a que la ejecución esté detenida. La web muestra «pausa
 solicitada» hasta que llega la confirmación del worker.
 
-## 8.9 Criterios de aceptación
+## 8.9 Ajustes
+
+Un panel accesible desde la cabecera reúne lo que el creador puede configurar sin editar
+ficheros:
+
+- Pausar el proyecto o reanudarlo. En pausa, el trabajo en curso termina y no se arranca
+  nada nuevo. La pantalla principal lo dice mientras dure.
+- El motor de cada agente, entre los que están instalados de verdad. Un motor que falta
+  aparece con su motivo, no como una opción que luego fallaría.
+- Cuántos workers puede tener un agente a la vez, y si está activo.
+- Qué sabe hacer cada motor. Se lee de lo que declara su adaptador, así que la web no
+  promete un dato que el motor no publica.
+
+## 8.10 Criterios de aceptación
 
 - Se identifica en qué trabaja cada agente sin abrir su registro de ejecución.
 - Un bloqueo indica qué falta y quién puede resolverlo.

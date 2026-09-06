@@ -5,18 +5,30 @@ import type { Db } from '../core/db.js';
 import { EventBus, listEvents, listRecentEvents } from '../core/events.js';
 import { integrableTasks, integrateTask } from '../core/integration.js';
 import { listChat, postChatMessage, projectSnapshot } from '../core/orchestrator.js';
-import { listAgents, listProjects, requireProject } from '../core/projects.js';
+import {
+  listAgents,
+  listProjects,
+  requireProject,
+  setAgentEnabled,
+  setAgentEngine,
+  setAgentWorkers,
+  setProjectStatus,
+  updateProject,
+} from '../core/projects.js';
 import { queueForRole, razonDeEspera } from '../core/queue.js';
 import { listFindings, listIncrements, readyToIntegrate } from '../core/review.js';
 import { RuleError, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
 import { now } from '../shared/ids.js';
-import type { Approval, Run, Task } from '../shared/types.js';
+import { ENGINES, type Approval, type EngineName, type Run, type Task } from '../shared/types.js';
 import type { Supervisor } from '../workers/supervisor.js';
+import type { EngineRegistry } from '../engines/registry.js';
 
 export interface ApiDeps {
   db: Db;
   bus: EventBus;
   supervisor: Supervisor;
+  /** Motores disponibles. Sirve para no dejar configurar uno que no está instalado. */
+  engines?: EngineRegistry;
   /** Carpeta con la web ya compilada. Si no existe, el servidor solo ofrece la API. */
   webDir?: string;
 }
@@ -37,7 +49,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>) {
   };
 }
 
-export function createApi({ db, bus, supervisor, webDir }: ApiDeps): Express {
+export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Express {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
@@ -92,6 +104,47 @@ export function createApi({ db, bus, supervisor, webDir }: ApiDeps): Express {
     );
   });
 
+  app.post('/api/projects/:id/settings', (req, res) => {
+    const cuerpo = req.body ?? {};
+    const cambios: Record<string, unknown> = {};
+
+    if (typeof cuerpo.goal === 'string') cambios['goal'] = cuerpo.goal;
+    if (typeof cuerpo.verify_command === 'string' || cuerpo.verify_command === null) {
+      cambios['verify_command'] = cuerpo.verify_command;
+    }
+    if (typeof cuerpo.install_command === 'string' || cuerpo.install_command === null) {
+      cambios['install_command'] = cuerpo.install_command;
+    }
+    for (const [campo, minimo, maximo] of [
+      ['max_concurrent_runs', 1, 16],
+      ['max_task_attempts', 1, 10],
+    ] as Array<[string, number, number]>) {
+      const valor = cuerpo[campo];
+      if (valor === undefined) continue;
+      if (!Number.isInteger(valor) || valor < minimo || valor > maximo) {
+        res.status(400).json({ error: `${campo} debe ser un entero entre ${minimo} y ${maximo}.` });
+        return;
+      }
+      cambios[campo] = valor;
+    }
+    if (cuerpo.run_timeout_ms !== undefined) {
+      if (!Number.isInteger(cuerpo.run_timeout_ms) || cuerpo.run_timeout_ms < 60_000) {
+        res.status(400).json({ error: 'El tiempo máximo de una ejecución no puede bajar de 60000 ms.' });
+        return;
+      }
+      cambios['run_timeout_ms'] = cuerpo.run_timeout_ms;
+    }
+
+    res.json(updateProject(db, param(req, 'id'), cambios));
+  });
+
+  app.post('/api/projects/:id/pause', (req, res) => {
+    // Un proyecto en pausa conserva su trabajo: el supervisor deja de arrancar workers y
+    // las tareas se quedan donde están.
+    const pausar = req.body?.paused !== false;
+    res.json(setProjectStatus(db, param(req, 'id'), pausar ? 'paused' : 'active'));
+  });
+
   app.get('/api/projects/:id/chat', (req, res) => {
     res.json(listChat(db, req.params.id));
   });
@@ -106,6 +159,46 @@ export function createApi({ db, bus, supervisor, webDir }: ApiDeps): Express {
     const mensaje = postChatMessage(db, bus, req.params.id, 'creator', cuerpo);
     supervisor.requestOrchestratorTurn();
     res.status(201).json(mensaje);
+  });
+
+  // -------------------------------------------------------------------------
+  // Agentes
+  // -------------------------------------------------------------------------
+
+  app.post('/api/agents/:id/engine', (req, res) => {
+    const engine = String(req.body?.engine ?? '');
+    if (!(ENGINES as readonly string[]).includes(engine)) {
+      res.status(400).json({ error: `El motor debe ser uno de: ${ENGINES.join(', ')}.` });
+      return;
+    }
+
+    const motor = engines?.get(engine as EngineName);
+    if (engines && !motor) {
+      res.status(400).json({ error: `El motor ${engine} no está instalado en este equipo.` });
+      return;
+    }
+
+    res.json(setAgentEngine(db, param(req, 'id'), engine as EngineName));
+  });
+
+  app.post('/api/agents/:id/enabled', (req, res) => {
+    res.json(setAgentEnabled(db, param(req, 'id'), req.body?.enabled !== false));
+  });
+
+  app.post('/api/agents/:id/workers', (req, res) => {
+    const workers = Number(req.body?.max_workers);
+    if (!Number.isInteger(workers) || workers < 1 || workers > 8) {
+      res.status(400).json({ error: 'El número de workers debe ser un entero entre 1 y 8.' });
+      return;
+    }
+    res.json(setAgentWorkers(db, param(req, 'id'), workers));
+  });
+
+  app.get('/api/engines', (_req, res) => {
+    res.json({
+      available: (engines?.available() ?? []).map((m) => ({ name: m.name, capabilities: m.capabilities() })),
+      unavailable: engines?.unavailable() ?? [],
+    });
   });
 
   // -------------------------------------------------------------------------

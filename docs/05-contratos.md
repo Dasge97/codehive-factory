@@ -163,6 +163,12 @@ Todas las rutas cuelgan de `/api`.
 | `POST /runs/:id/stop` | Para una ejecución en curso. |
 | `POST /approvals/:id` | Responde a una petición de autorización. |
 | `GET /projects/:id/events` | Canal de Server-Sent Events con los eventos en vivo. |
+| `POST /projects/:id/settings` | Cambia objetivo, comandos y límites del proyecto. |
+| `POST /projects/:id/pause` | Pausa el proyecto o lo reanuda. |
+| `GET /engines` | Motores instalados con sus capacidades, y los que faltan con su motivo. |
+| `POST /agents/:id/engine` | Cambia el motor de un agente. Rechaza uno que no esté instalado. |
+| `POST /agents/:id/workers` | Cambia cuántos workers puede tener un agente a la vez. |
+| `POST /agents/:id/enabled` | Activa o desactiva un agente. |
 
 El canal de eventos acepta el parámetro `since` con el último identificador de evento
 recibido. Al reconectar, la web pide desde ahí y no pierde nada.

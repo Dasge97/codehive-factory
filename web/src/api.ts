@@ -43,9 +43,26 @@ export interface AgentView {
   model: string | null;
   allowed_tools: string[];
   max_workers: number;
+  enabled: number;
   busy_workers: number;
   current_tasks: string[];
   queue_length: number;
+}
+
+/** Qué sabe hacer realmente un motor. La web solo ofrece lo que aquí se declara. */
+export interface EngineCapabilities {
+  resumeSession: boolean;
+  resultSchema: boolean;
+  usageReporting: boolean;
+  costReporting: boolean;
+  budgetLimit: boolean;
+  permissionDenials: boolean;
+  stop: boolean;
+}
+
+export interface MotoresDisponibles {
+  available: Array<{ name: string; capabilities: EngineCapabilities }>;
+  unavailable: Array<{ engine: string; reason: string }>;
 }
 
 export interface Run {
@@ -131,6 +148,9 @@ export interface ProjectOverview {
     repo_path: string;
     main_branch: string;
     verify_command: string | null;
+    install_command: string | null;
+    max_concurrent_runs: number;
+    max_task_attempts: number;
     status: string;
   };
   snapshot: {
@@ -200,6 +220,20 @@ export const api = {
 
   responderAutorizacion: (id: string, granted: boolean) =>
     pedir<Approval>(`/approvals/${id}`, { method: 'POST', body: JSON.stringify({ granted }) }),
+
+  motores: () => pedir<MotoresDisponibles>('/engines'),
+
+  pausarProyecto: (id: string, paused: boolean) =>
+    pedir<{ status: string }>(`/projects/${id}/pause`, { method: 'POST', body: JSON.stringify({ paused }) }),
+
+  cambiarMotor: (agentId: string, engine: string) =>
+    pedir<AgentView>(`/agents/${agentId}/engine`, { method: 'POST', body: JSON.stringify({ engine }) }),
+
+  cambiarWorkers: (agentId: string, max_workers: number) =>
+    pedir<AgentView>(`/agents/${agentId}/workers`, { method: 'POST', body: JSON.stringify({ max_workers }) }),
+
+  activarAgente: (agentId: string, enabled: boolean) =>
+    pedir<AgentView>(`/agents/${agentId}/enabled`, { method: 'POST', body: JSON.stringify({ enabled }) }),
 };
 
 // ---------------------------------------------------------------------------
