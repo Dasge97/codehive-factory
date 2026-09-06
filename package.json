@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:web": "vite",
-    "build:web": "vite build"
+    "build:web": "vite build",
+    "test:servidor": "vitest run --project servidor",
+    "test:web": "vitest run --project web"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
@@ -25,12 +27,16 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.29",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^26.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vite": "^6.4.3",

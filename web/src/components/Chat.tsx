@@ -16,7 +16,13 @@ export function Chat({ mensajes, alEnviar, borrador, alCambiarBorrador }: Props)
   const final = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    final.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // Bajar al último mensaje es una comodidad, no algo que deba poder romper el chat:
+    // si el navegador no lo admite, el resto sigue funcionando igual.
+    try {
+      final.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+    } catch {
+      // Sin desplazamiento automático.
+    }
   }, [mensajes.length]);
 
   async function enviar(evento: React.FormEvent) {
