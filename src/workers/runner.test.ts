@@ -332,3 +332,46 @@ describe('registro de la ejecución', () => {
     expect(tipos).toContain('run.finished');
   });
 });
+
+describe('fallos encontrados en la primera prueba con agentes reales', () => {
+  it('el agente puede ejecutar comandos dentro de su worktree', async () => {
+    const t = tareaLista();
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() });
+    await ejecutar(t, motor);
+
+    // Con acceptEdits el agente escribe ficheros pero no puede hacer commit ni ejecutar
+    // las pruebas, y todo comando se le deniega.
+    expect(motor.peticiones[0]!.permissionMode).toBe('bypassPermissions');
+  });
+
+  it('el worker confirma los cambios que el agente dejó sin confirmar', async () => {
+    const t = tareaLista();
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() }, async (req) => {
+      // El agente escribe el fichero pero no llega a hacer commit.
+      writeFileSync(join(req.cwd, 'sin-commit.txt'), 'trabajo del agente\n');
+    });
+
+    const r = await ejecutar(t, motor);
+
+    expect(r.incrementId).not.toBeNull();
+    const incrementos = listIncrements(db, t.id);
+    expect(incrementos).toHaveLength(1);
+    expect(incrementos[0]!.files_json).toContain('sin-commit.txt');
+    expect(requireTask(db, t.id).status).toBe('in_review');
+  });
+
+  it('avanzar sin terminar también gasta intentos', async () => {
+    const t = tareaLista();
+    const motor = new MotorSimulado({
+      resultText: JSON.stringify({ outcome: 'partial', summary: 'He avanzado un poco.' }),
+    });
+
+    await ejecutar(t, motor);
+    expect(requireTask(db, t.id).status).toBe('ready');
+
+    await ejecutar(t, motor);
+    const actualizada = requireTask(db, t.id);
+    expect(actualizada.status).toBe('blocked');
+    expect(actualizada.blocked_reason).toMatch(/avanzó sin terminar en 2 intentos/);
+  });
+});

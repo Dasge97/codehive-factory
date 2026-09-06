@@ -238,3 +238,18 @@ describe('corrección de un hallazgo', () => {
     expect(listEvents(db, proyecto.id).map((e) => e.type)).toContain('finding.resolved');
   });
 });
+
+describe('qué se puede integrar', () => {
+  it('una revisión no se integra: se integra la tarea que revisó', () => {
+    const { build, review, incrementId } = tareaConIncremento();
+    openFindings(db, bus, { review_task_id: review.id, increment_id: incrementId, findings: [] });
+
+    // La revisión termina también, y comparte rama y commit con la tarea original.
+    setStatus(db, bus, review.id, 'in_progress');
+    setStatus(db, bus, review.id, 'done');
+
+    expect(readyToIntegrate(db, build.id).ready).toBe(true);
+    expect(readyToIntegrate(db, review.id).ready).toBe(false);
+    expect(readyToIntegrate(db, review.id).reason).toMatch(/no se integra/);
+  });
+});

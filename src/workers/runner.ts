@@ -17,7 +17,7 @@ import {
   type Task,
 } from '../shared/types.js';
 import type { Engine, EngineRunOutcome } from '../engines/types.js';
-import { changedFiles, ensureWorktree, lastCommit, resolveCommit } from './git.js';
+import { changedFiles, ensureWorktree, git, lastCommit, resolveCommit, uncommittedFiles } from './git.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,7 +81,10 @@ export async function runTask(
       systemPromptAppend: agent.instructions,
       sessionId: run.engine_session_id ?? undefined,
       resumeSessionId: previousSessionId(db, task.id),
-      permissionMode: ESCRIBEN_CODIGO.has(task.kind) ? 'acceptEdits' : 'manual',
+      // Dentro de su worktree el agente trabaja sin pedir permiso a cada paso. Lo que
+      // realmente lo limita es la lista de herramientas y el aislamiento del worktree,
+      // no el prompt de permisos (decisión D26).
+      permissionMode: 'bypassPermissions',
     },
     (progreso) => {
       appendEvent(db, bus, {
@@ -313,6 +316,10 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
 
   if (!ESCRIBEN_CODIGO.has(task.kind)) return null;
 
+  // Si el agente dejó cambios sin confirmar, el worker hace el commit por él. Perder el
+  // trabajo de una ejecución entera porque falló el último paso no tiene sentido.
+  await commitPendiente(input.workspacePath, result.summary, task.title);
+
   // Se toma el commit real del worktree, no el que diga el agente: si se equivoca de
   // identificador, el incremento apuntaría a algo que no existe.
   const commit = await lastCommit(input.workspacePath);
@@ -330,6 +337,27 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
   });
 
   return publicado.increment.id;
+}
+
+/**
+ * Confirma lo que haya quedado sin confirmar en el worktree.
+ *
+ * El mensaje sale del resumen del agente, recortado a una línea, para que el historial se
+ * lea bien.
+ */
+async function commitPendiente(worktreePath: string, resumen: string, titulo: string): Promise<void> {
+  const sinConfirmar = await uncommittedFiles(worktreePath).catch(() => []);
+  if (sinConfirmar.length === 0) return;
+
+  const primeraLinea = resumen.split('\n')[0]?.trim() ?? '';
+  const mensaje = (primeraLinea.length > 8 ? primeraLinea : titulo).slice(0, 100);
+
+  await git(worktreePath, ['add', '-A']);
+  await git(worktreePath, [
+    '-c', 'user.email=agente@codehive.local',
+    '-c', 'user.name=Code Hive Factory',
+    'commit', '-m', mensaje,
+  ]);
 }
 
 interface FinishRunInput {
@@ -437,7 +465,16 @@ function decideTaskStatus(
       return;
 
     case 'partial':
-      setStatus(db, bus, task.id, 'ready', 'el agente avanzó sin terminar');
+      // Avanzar sin terminar también gasta intentos: sin ese límite, un agente que nunca
+      // cierra la tarea la reintenta indefinidamente.
+      if (actual.attempts >= maxAttempts) {
+        setStatus(
+          db, bus, task.id, 'blocked',
+          `La tarea avanzó sin terminar en ${actual.attempts} intentos. Último resumen: ${result.summary}`,
+        );
+      } else {
+        setStatus(db, bus, task.id, 'ready', 'el agente avanzó sin terminar');
+      }
       return;
 
     case 'completed':
@@ -447,6 +484,10 @@ function decideTaskStatus(
       } else {
         setStatus(db, bus, task.id, 'done', result.summary);
       }
+      return;
+
+    default:
+      setStatus(db, bus, task.id, 'ready', 'resultado no reconocido');
       return;
   }
 }

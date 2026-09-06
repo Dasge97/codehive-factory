@@ -3,6 +3,46 @@
 Una fase no se da por terminada hasta que sus pruebas pasan y el resultado se puede
 enseñar. Cada prueba dice qué se hace y qué hay que ver.
 
+## Estado de la fase 1, a 6 de septiembre de 2026
+
+| Prueba | Estado | Dónde se comprueba |
+| --- | --- | --- |
+| P1-01 Dos tareas independientes a la vez | Pasa | `src/core/queue.test.ts`, prueba «cada worker se lleva una tarea distinta». |
+| P1-02 Una corrección entra mientras sigue otro trabajo | Pasa | `src/core/review.test.ts`, pruebas de revisión con hallazgos. |
+| P1-03 Dos workers no reclaman la misma tarea | Pasa | `src/core/queue.test.ts`, prueba «dos workers a la vez». |
+| P1-04 Los bloqueos impiden el trabajo simultáneo sobre lo mismo | Pasa | `src/core/queue.test.ts`, bloque «bloqueos de recursos». |
+| P1-05 El sistema se recupera de un reinicio | Pasa | `src/core/queue.test.ts`, bloque «abandono de una ejecución». |
+| P1-06 Un cambio de requisito conserva el trabajo compatible | Pendiente | Falta la prueba del marcado para reevaluar. |
+| P1-07 Un conflicto de integración se gestiona | Pendiente | Falta una prueba con conflicto real de Git. |
+| P1-08 Una integración que rompe las verificaciones se deshace | Pendiente | Falta una prueba con verificación que falla. |
+| P1-09 Una corrección en bucle se detiene | Pasa | `src/workers/runner.test.ts`, límite de intentos. |
+| P1-10 La falta de cuota pausa sin romper nada | Parcial | El supervisor deja de arrancar workers. Falta provocarlo de verdad. |
+| P1-11 Una petición de autorización llega al creador | Pasa | `src/workers/runner.test.ts`, bloque «autorizaciones y consumo». |
+| P1-12 El creador integra | **Pasa con agentes reales** | Ver el apartado siguiente. |
+| P1-13 La web refleja el estado real | Pasa | `src/server/api.test.ts`, canal de eventos en vivo. |
+| P1-14 Recorrido completo del creador | **Pasa con agentes reales** | Ver el apartado siguiente. |
+
+## Primera ejecución real de principio a fin
+
+El 6 de septiembre de 2026 el sistema completó su primer trabajo con agentes reales sobre
+su propio repositorio.
+
+1. El creador pidió por el chat una guía de arranque en un fichero nuevo.
+2. El orquestador creó una única tarea para el builder y respondió explicando el reparto.
+3. El builder trabajó en su worktree, escribió el fichero y publicó un commit.
+4. La tarea pasó a revisión y se creó automáticamente la tarea del reviewer.
+5. El reviewer revisó ese commit y lo aprobó sin hallazgos.
+6. El creador integró desde la API. La rama se fusionó, `npm test` pasó, y el worktree y
+   la rama se eliminaron.
+
+El documento producido está en `docs/12-guia-de-arranque.md`. El consumo total fue el 8 %
+de la ventana de cinco horas de la suscripción.
+
+**Tres fallos que salieron de esta prueba** y que las pruebas automáticas no habrían
+encontrado, corregidos en las decisiones D26, D27 y D28: el builder no podía ejecutar
+ninguna orden, una tarea se reintentó 32 veces, y una tarea de revisión aparecía como
+integrable.
+
 ## Fase 1
 
 ### P1-01 · Dos tareas independientes avanzan a la vez

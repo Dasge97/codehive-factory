@@ -299,6 +299,12 @@ export function readyToIntegrate(db: Db, taskId: string): { ready: boolean; reas
   const task = requireTask(db, taskId);
   requireProject(db, task.project_id);
 
+  // Una revisión comparte rama con la tarea que revisó y no publica código propio.
+  // Integrarla sería fusionar dos veces lo mismo.
+  if (task.kind === 'review') {
+    return { ready: false, reason: 'Una revisión no se integra: se integra la tarea que revisó.' };
+  }
+
   if (task.status !== 'done') return { ready: false, reason: `La tarea está en estado ${task.status}.` };
   if (!task.head_commit) return { ready: false, reason: 'La tarea no ha publicado ningún commit.' };
 

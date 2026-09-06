@@ -5,7 +5,8 @@ orquestador; un equipo de agentes construye, revisa y corrige el proyecto de for
 concurrente. El creador ve el estado en una web y puede cambiar el rumbo mientras el
 trabajo avanza.
 
-Estado: fase 0 terminada, el motor está validado. Fase 1 en construcción.
+Estado: el ciclo completo funciona. El creador pide algo por el chat, el orquestador
+reparte, el builder construye, el reviewer revisa y el creador integra desde la web.
 
 ## Documentación
 
@@ -22,6 +23,7 @@ Estado: fase 0 terminada, el motor está validado. Fase 1 en construcción.
 | [09 · Plan de implementación](docs/09-plan-implementacion.md) | Fases y tareas numeradas con dependencias. |
 | [10 · Pruebas de aceptación](docs/10-pruebas-aceptacion.md) | Qué hay que demostrar para dar por buena cada fase. |
 | [11 · Capacidades de Claude Code](docs/11-capacidades-claude-code.md) | Qué permite el motor realmente, comprobado en la fase 0. |
+| [12 · Guía de arranque](docs/12-guia-de-arranque.md) | Cómo poner el sistema en marcha. Escrita por el propio sistema. |
 
 El documento de partida se conserva en [docs/archivo/](docs/archivo/). No es la
 referencia vigente: está superado por los documentos de la tabla.

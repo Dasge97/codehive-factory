@@ -32,7 +32,12 @@ nueva que explique cómo se sustituye esa capacidad.
 
 ---
 
-## Fase 1 · Sistema utilizable
+## Fase 1 · Sistema utilizable — en construcción
+
+Hechas: F1-01 a F1-19 y F1-20 a F1-25. Quedan F1-26 y F1-27.
+
+El ciclo completo funcionó con agentes reales el 6 de septiembre de 2026. El detalle está
+en [10 · Pruebas de aceptación](10-pruebas-aceptacion.md).
 
 Objetivo: el creador pide un cambio, cuatro agentes lo construyen y lo revisan, y el
 creador integra desde la web.

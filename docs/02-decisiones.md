@@ -419,6 +419,54 @@ trabajos en vuelo terminen antes de cerrar la base de datos.
 
 ---
 
+## D26 · Dentro de su worktree, el agente no pide permiso
+
+**Origen:** técnica, tras la primera prueba con agentes reales.
+
+El motor se lanza en modo de permisos abierto. Lo que limita al agente es la lista de
+herramientas que se le da y el aislamiento de su worktree, no el prompt de permisos.
+
+**Por qué:** en la primera prueba real, el builder escribió el fichero pedido pero no pudo
+hacer `git commit` ni ejecutar las pruebas del proyecto. Con el modo anterior, editar
+ficheros estaba permitido y ejecutar cualquier orden se denegaba, y como nadie responde a
+los prompts, toda orden se denegaba automáticamente. Un builder que no puede hacer commit
+no puede publicar ningún incremento, así que el ciclo entero se quedaba parado.
+
+**Qué sigue protegido:** el agente solo tiene las herramientas de su rol, trabaja en un
+worktree separado, y las reglas de no hacer push ni fusionar en la rama principal siguen
+en sus instrucciones. La integración sigue necesitando la confirmación del creador
+(decisión D04).
+
+**Relación con la decisión D22:** las peticiones de autorización siguen existiendo para lo
+que el motor deniegue por su cuenta. Ya no se generan por comandos normales del trabajo.
+
+---
+
+## D27 · El worker confirma lo que el agente deje sin confirmar
+
+**Origen:** técnica, tras la primera prueba con agentes reales.
+
+Si al terminar una ejecución quedan cambios sin confirmar en el worktree, el worker hace
+el commit con el resumen del agente como mensaje.
+
+**Por qué:** perder el trabajo de una ejecución entera porque falló el último paso no
+tiene sentido. El incremento es lo que el reviewer necesita para trabajar.
+
+---
+
+## D28 · Avanzar sin terminar también gasta intentos
+
+**Origen:** técnica, tras la primera prueba con agentes reales.
+
+Una tarea cuyo agente devuelve que avanzó sin terminar cuenta un intento. Al superar el
+máximo del proyecto, la tarea se bloquea con su historial.
+
+**Por qué:** en la primera prueba real, una tarea se ejecutó 32 veces seguidas. El límite
+de intentos solo contaba los fallos, y el agente devolvía que había avanzado sin terminar,
+que no contaba. Una tarea que nunca se cierra se reintentaba de forma indefinida.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |
