@@ -333,6 +333,53 @@ antes.
 
 ---
 
+## D21 · El resultado del agente se valida con un esquema del motor
+
+**Origen:** técnica, tras la fase 0.
+
+El worker pasa un esquema JSON al motor con la opción `--json-schema`. El motor devuelve
+un resultado que cumple ese esquema. El worker lo valida otra vez antes de guardarlo.
+
+**Por qué:** el motor hace cumplir el formato. El worker no depende de que el agente
+escriba correctamente un fichero.
+
+**Sustituye a:** el fichero `.codehive/result.json` que estaba en el documento 05 antes
+de la fase 0. La comprobación F0-08 confirmó que la opción del motor funciona.
+
+---
+
+## D22 · Las autorizaciones se resuelven entre ejecuciones
+
+**Origen:** técnica, tras la fase 0.
+
+El worker ejecuta con `--permission-prompts none`, así que cualquier acción que necesite
+permiso se deniega automáticamente. La ejecución continúa y la denegación queda en el
+campo `permission_denials` del evento final, con la herramienta y sus argumentos exactos.
+El worker convierte cada denegación en una petición de autorización para el creador. Si
+el creador la aprueba, la siguiente ejecución de la tarea añade esa herramienta a las
+permitidas.
+
+**Por qué:** no hace falta un servidor MCP que atienda permisos en tiempo real. Encaja
+con la decisión D12, que fija el final de una ejecución como punto seguro.
+
+**Consecuencia:** una acción que necesita permiso no se ejecuta en el mismo intento. El
+agente sigue trabajando en lo que sí puede hacer y el creador decide después.
+
+---
+
+## D23 · Cada ejecución tiene un tiempo máximo
+
+**Origen:** técnica, tras la fase 0.
+
+El adaptador aplica un tiempo máximo configurable por proyecto. Al superarlo, mata el
+proceso del motor y marca la ejecución como agotada por tiempo.
+
+**Por qué:** en la comprobación F0-06, un fallo de autenticación tardó más de dos minutos
+en producirse porque el motor reintenta antes de rendirse. Sin un tiempo máximo, un
+problema de credenciales bloquea un worker durante minutos.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

@@ -65,8 +65,9 @@ anterior. Es el mecanismo del punto seguro descrito en la decisión D12.
 
 ## 5.2 Resultado que devuelve un agente
 
-El agente termina su ejecución escribiendo un fichero JSON en su worktree, en
-`.codehive/result.json`. El worker lo lee, lo valida y lo guarda.
+El worker pasa el esquema de este objeto al motor con la opción `--json-schema`. El motor
+devuelve un resultado que lo cumple, en el campo `result` del evento final. El worker lo
+convierte a objeto y lo valida antes de guardarlo (decisión D21).
 
 ```json
 {
@@ -95,10 +96,9 @@ El agente termina su ejecución escribiendo un fichero JSON en su worktree, en
 | `questions` | Preguntas que bloquean el trabajo y necesitan respuesta del orquestador o del creador. |
 | `needs` | Peticiones de apoyo a otro rol. Generan una tarea nueva. |
 
-**Por qué un fichero y no la salida del modelo.** El texto libre del modelo no es fiable
-como formato de datos. Un fichero que el agente escribe con sus herramientas se valida
-igual que cualquier otro dato de entrada, y si falta o está mal formado la ejecución se
-marca como fallida con un motivo claro.
+**Por qué un esquema y no el texto libre del modelo.** El texto libre no es fiable como
+formato de datos. El motor hace cumplir el esquema, y si el resultado falta o no valida,
+la ejecución se marca como fallida con un motivo claro.
 
 ## 5.3 Hallazgo
 

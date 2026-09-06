@@ -64,7 +64,7 @@ sin tocar el resto del sistema.
 
 | Operación | Qué recibe | Qué devuelve |
 | --- | --- | --- |
-| Iniciar ejecución | Instrucciones, directorio de trabajo, herramientas permitidas e identificador de sesión anterior si lo hay. | Un flujo de eventos y un identificador de ejecución. |
+| Iniciar ejecución | Instrucciones, directorio de trabajo, herramientas permitidas, esquema del resultado, tiempo máximo e identificador de sesión anterior si lo hay. | Un flujo de eventos y un identificador de ejecución. |
 | Leer eventos | El identificador de ejecución. | Eventos de progreso: mensaje, uso de herramienta, petición de autorización, error. |
 | Responder autorización | El identificador de la petición y la respuesta. | Confirmación. |
 | Parar ejecución | El identificador de ejecución. | Confirmación de parada. |

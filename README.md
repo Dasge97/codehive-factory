@@ -5,7 +5,7 @@ orquestador; un equipo de agentes construye, revisa y corrige el proyecto de for
 concurrente. El creador ve el estado en una web y puede cambiar el rumbo mientras el
 trabajo avanza.
 
-Estado: documentación cerrada, implementación no iniciada.
+Estado: fase 0 terminada, el motor está validado. Fase 1 en construcción.
 
 ## Documentación
 
@@ -21,6 +21,7 @@ Estado: documentación cerrada, implementación no iniciada.
 | [08 · Interfaz web](docs/08-interfaz-web.md) | Pantallas, datos que muestra y criterios de aceptación. |
 | [09 · Plan de implementación](docs/09-plan-implementacion.md) | Fases y tareas numeradas con dependencias. |
 | [10 · Pruebas de aceptación](docs/10-pruebas-aceptacion.md) | Qué hay que demostrar para dar por buena cada fase. |
+| [11 · Capacidades de Claude Code](docs/11-capacidades-claude-code.md) | Qué permite el motor realmente, comprobado en la fase 0. |
 
 El documento de partida se conserva en [docs/archivo/](docs/archivo/). No es la
 referencia vigente: está superado por los documentos de la tabla.

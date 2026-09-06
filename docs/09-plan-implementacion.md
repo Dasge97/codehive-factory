@@ -8,7 +8,10 @@ sin que su criterio se cumpla y se pueda enseñar.
 
 ---
 
-## Fase 0 · Validar el motor
+## Fase 0 · Validar el motor — TERMINADA el 6 de septiembre de 2026
+
+Resultado en [11 · Capacidades de Claude Code](11-capacidades-claude-code.md). Todas las
+comprobaciones pasaron. Tres cambios de diseño salieron de ella: decisiones D21, D22 y D23.
 
 Objetivo: saber qué permite Claude Code con la cuenta del creador antes de diseñar
 alrededor de suposiciones.
