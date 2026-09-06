@@ -9,6 +9,10 @@ ejemplo `tsk_01H8...`. El prefijo hace legibles los registros y los mensajes de 
 
 Las tablas marcadas como **fase 2** no se crean en la fase 1.
 
+**Dónde está el esquema que manda.** El esquema real vive en `src/core/migrations.ts` y es
+la única fuente de verdad. Este documento explica el modelo y puede quedarse por detrás en
+un detalle; cuando haya discrepancia, manda el fichero de migraciones.
+
 ## 4.1 Esquema
 
 ```sql
@@ -23,8 +27,10 @@ CREATE TABLE projects (
   main_branch         TEXT NOT NULL DEFAULT 'main',
   goal                TEXT,                 -- objetivo actual, lo mantiene el orquestador
   verify_command      TEXT,                 -- comando de verificación tras integrar
+  install_command     TEXT,                 -- comando de instalación de dependencias en cada worktree
   max_concurrent_runs INTEGER NOT NULL DEFAULT 4,
   max_task_attempts   INTEGER NOT NULL DEFAULT 3,
+  run_timeout_ms      INTEGER NOT NULL DEFAULT 900000,  -- tiempo máximo de una ejecución (decisión D23)
   status              TEXT NOT NULL DEFAULT 'active',  -- active | paused | archived
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -112,7 +118,7 @@ CREATE TABLE runs (
   error             TEXT,
   input_tokens      INTEGER,
   output_tokens     INTEGER,
-  cost_note         TEXT,                   -- lo que el motor informe, si informa algo
+  cost_usd          REAL,                   -- coste que informa el motor
   started_at        TEXT NOT NULL,
   ended_at          TEXT
 );
@@ -192,12 +198,37 @@ CREATE INDEX idx_events_stream ON events(project_id, id);
 CREATE TABLE approvals (
   id           TEXT PRIMARY KEY,
   run_id       TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   kind         TEXT NOT NULL,               -- tool_use | merge | other
   request      TEXT NOT NULL,               -- qué se pide, en texto legible
+  tool_name    TEXT,                        -- herramienta denegada, si viene de una denegación
+  tool_input   TEXT,                        -- argumentos exactos con los que se pidió
   status       TEXT NOT NULL DEFAULT 'pending',  -- pending | granted | denied | expired
   responded_by TEXT,
   created_at   TEXT NOT NULL,
   responded_at TEXT
+);
+
+-- Avisos pendientes de entregar a una tarea en su siguiente ejecución (decisión D12).
+CREATE TABLE notices (
+  id           TEXT PRIMARY KEY,
+  task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  from_actor   TEXT NOT NULL,
+  body         TEXT NOT NULL,
+  delivered_at TEXT,
+  created_at   TEXT NOT NULL
+);
+
+-- Último consumo de la suscripción publicado por cada motor (apartado 11.6).
+CREATE TABLE engine_usage (
+  engine           TEXT PRIMARY KEY,
+  status           TEXT NOT NULL,
+  five_hour_util   REAL,
+  five_hour_resets TEXT,
+  seven_day_util   REAL,
+  seven_day_resets TEXT,
+  using_overage    INTEGER NOT NULL DEFAULT 0,
+  updated_at       TEXT NOT NULL
 );
 ```
 
@@ -259,10 +290,19 @@ ORDER BY t.priority ASC, t.created_at ASC
 LIMIT 1;
 ```
 
-El cruce de bloqueos compara patrones idénticos. Es una comprobación conservadora y
-suficiente para la fase 1, donde el orquestador declara los patrones de forma explícita.
-Si en el uso real aparecen solapamientos parciales que hay que detectar, se sustituye por
-una comparación de prefijos de ruta.
+**El cruce de bloqueos se hace en código, no en la consulta.** La consulta trae las
+candidatas y el código descarta las que chocan. Dos patrones chocan cuando la parte fija de
+uno es prefijo de la parte fija del otro: `src/**` choca con `src/core/db.ts`, y `src/core/**`
+no choca con `web/**`. La función está en `src/core/queue.ts` y se llama `patronesColisionan`.
+
+Es una comprobación conservadora a propósito. Puede rechazar una pareja que en realidad no
+coincidiría, y eso solo retrasa una tarea. Lo contrario, dejar pasar dos tareas que sí
+chocan, produce un conflicto que nadie ha pedido.
+
+**Los bloqueos se activan al reclamar la tarea, no al crearla.** Al crear una tarea sus
+patrones quedan registrados pero ya liberados. El bloqueo real se toma dentro de la
+transacción de reclamación. Así, declarar ficheros no impide que otras tareas avancen
+mientras esta espera en la cola.
 
 ## 4.4 Reclamación atómica
 
