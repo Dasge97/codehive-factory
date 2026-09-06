@@ -380,6 +380,45 @@ problema de credenciales bloquea un worker durante minutos.
 
 ---
 
+## D24 · El orquestador devuelve un plan, no llama a herramientas
+
+**Origen:** técnica, durante la fase 1.
+
+El orquestador recibe el estado completo del proyecto y devuelve de una vez un plan: su
+respuesta al creador, las tareas nuevas, las decisiones que registrar, los cambios de
+prioridad y las cancelaciones. El sistema aplica ese plan con código normal.
+
+**Por qué:** dar herramientas al orquestador exigiría levantar un servidor MCP propio y
+mantener una sesión abierta mientras las llama una a una. Un plan devuelto de golpe se
+valida contra un esquema, se aplica de forma determinista y pasa por las mismas
+comprobaciones que cualquier otro cambio.
+
+**Consecuencia:** el orquestador no puede consultar el estado a mitad de su turno. No hace
+falta: lo recibe entero en su encargo.
+
+**Sustituye a:** la lista de herramientas del apartado 5.6 del documento de contratos.
+
+---
+
+## D25 · Los workers son tareas asíncronas, no procesos separados
+
+**Origen:** técnica, durante la fase 1.
+
+Cada worker es una tarea asíncrona dentro del proceso principal. El motor sí es un
+proceso externo.
+
+**Por qué:** el aislamiento real ya lo da el proceso del motor, que corre en su propio
+worktree. Un proceso hijo por worker obligaría a construir un canal de comunicación con
+el proceso principal sin ganar nada a cambio, porque el worker solo espera al motor.
+
+**Consecuencia:** todo el estado sigue escribiéndose desde un solo proceso, que era el
+motivo original de separar los workers. Al parar el sistema hay que esperar a que los
+trabajos en vuelo terminen antes de cerrar la base de datos.
+
+**Sustituye a:** el apartado 3.2 del documento de arquitectura.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

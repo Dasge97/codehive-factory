@@ -167,20 +167,49 @@ Todas las rutas cuelgan de `/api`.
 El canal de eventos acepta el parámetro `since` con el último identificador de evento
 recibido. Al reconectar, la web pide desde ahí y no pierde nada.
 
-## 5.6 Herramientas del orquestador
+## 5.6 Plan que devuelve el orquestador
 
-El orquestador no escribe código. Sus herramientas actúan sobre el registro de tareas
-(decisión D16).
+El orquestador no llama a herramientas una a una. Recibe el estado completo del proyecto
+y devuelve un plan que el sistema aplica con código normal (decisión D24). El esquema se
+le pasa al motor con `--json-schema`, igual que el contrato de resultado de los demás
+agentes.
 
-| Herramienta | Qué hace |
-| --- | --- |
-| `crear_tarea` | Crea una tarea con objetivo, alcance, criterios, rol, prioridad, dependencias y patrones de ruta. |
-| `actualizar_tarea` | Cambia prioridad, alcance o criterios de una tarea que no está en curso. |
-| `cancelar_tarea` | Cancela una tarea con un motivo. |
-| `registrar_decision` | Guarda una decisión de producto y marca las tareas afectadas para reevaluar. |
-| `consultar_estado` | Devuelve el estado del proyecto, las colas y los bloqueos. |
-| `responder_creador` | Escribe un mensaje en el chat. |
-| `pedir_investigacion` | Crea una tarea para el investigador a partir de una pregunta concreta. |
+```json
+{
+  "reply": "Respuesta para el creador, en lenguaje llano.",
+  "project_goal": "Objetivo actual del proyecto, si ha cambiado.",
+  "tasks": [
+    {
+      "title": "Estructura de datos del área de proyectos",
+      "goal": "Crear las tablas y las migraciones.",
+      "kind": "build",
+      "role": "builder",
+      "scope": "Solo el esquema. La interfaz va en otra tarea.",
+      "acceptance": "Las migraciones se aplican desde cero sin error.",
+      "priority": 30,
+      "path_patterns": ["src/db/**"],
+      "depends_on": []
+    }
+  ],
+  "decisions": [
+    { "title": "...", "body": "...", "supersedes_title": "..." }
+  ],
+  "priority_changes": [{ "task_id": "tsk_...", "priority": 10 }],
+  "cancellations": [{ "task_id": "tsk_...", "reason": "..." }]
+}
+```
+
+**Cómo se enlazan las dependencias.** El campo `depends_on` acepta títulos de otras
+tareas del mismo plan, o identificadores de tareas que ya existen. El orquestador no
+puede conocer el identificador de una tarea que aún no se ha creado.
+
+**Qué pasa si una parte del plan falla.** Cada cambio se aplica por separado con las
+funciones normales del sistema. Si una tarea no se puede crear, el resto del plan se
+aplica igual y el fallo se le cuenta al orquestador en su siguiente turno.
+
+**Qué recibe el orquestador.** Objetivo del proyecto, decisiones vigentes, todas las
+tareas con su estado y su motivo de espera, el equipo con la longitud de cada cola, las
+autorizaciones pendientes y la conversación reciente.
 
 ## 5.7 Configuración de un proyecto
 

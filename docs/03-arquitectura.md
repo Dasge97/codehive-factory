@@ -7,8 +7,8 @@ Todo lo descrito aquí se ejecuta en el equipo Windows del creador (decisión D0
 | Componente | Qué hace | Tecnología |
 | --- | --- | --- |
 | Servicio de coordinación | Guarda el estado, reparte tareas, aplica bloqueos y publica eventos. | Node con TypeScript, SQLite. |
-| Supervisor de workers | Arranca y para los procesos de los workers según haya trabajo. | Node, dentro del mismo proceso que el servicio de coordinación. |
-| Worker | Toma una tarea, prepara su espacio de trabajo, invoca el motor y guarda el resultado. | Proceso hijo de Node. |
+| Supervisor de workers | Arranca y para el trabajo según haya tareas en cola. | Node, dentro del mismo proceso que el servicio de coordinación. |
+| Worker | Toma una tarea, prepara su espacio de trabajo, invoca el motor y guarda el resultado. | Tarea asíncrona dentro del proceso principal (decisión D25). |
 | Adaptador de motor | Traduce entre el contrato interno y la herramienta concreta de ejecución. | Módulo TypeScript con una interfaz común. |
 | Motor | Ejecuta la sesión de programación. En la fase 1, Claude Code. | Proceso externo. |
 | Web | Muestra el estado y recoge las órdenes del creador. | React con Vite. |
@@ -16,18 +16,21 @@ Todo lo descrito aquí se ejecuta en el equipo Windows del creador (decisión D0
 
 ## 3.2 Procesos en ejecución
 
-Hay un proceso principal y un proceso hijo por worker activo.
+Hay un proceso principal y un proceso externo del motor por cada ejecución activa
+(decisión D25).
 
 El proceso principal contiene el servicio de coordinación, el servidor HTTP que sirve la
 web y su API, y el supervisor de workers. Es el único que escribe en la base de datos.
 
-Cada worker es un proceso hijo. No abre la base de datos: pide trabajo y publica
-resultados llamando a la API interna del proceso principal. Cada worker lanza a su vez
-el proceso del motor y lee su salida.
+Cada worker es una tarea asíncrona dentro de ese proceso. Prepara el worktree, lanza el
+proceso del motor y lee su salida.
 
-**Por qué los workers no tocan la base de datos:** concentra toda la escritura en un
-proceso. La reclamación atómica y los bloqueos se resuelven en un solo sitio y son fáciles
-de probar.
+**Por qué toda la escritura ocurre en un proceso:** la reclamación atómica y los bloqueos
+se resuelven en un solo sitio y son fáciles de probar. El aislamiento del trabajo lo da el
+proceso del motor, que corre en su propio worktree.
+
+**Consecuencia al parar:** el supervisor espera a que terminen los trabajos en vuelo antes
+de que se cierre la base de datos.
 
 ## 3.3 Cómo circula la información
 
@@ -35,8 +38,8 @@ de probar.
 servicio de coordinación. El servicio lo guarda y despierta al worker del orquestador.
 
 **El orquestador reparte.** Su sesión de motor recibe el mensaje, el estado actual del
-proyecto y las decisiones vigentes. Responde creando tareas y ajustando prioridades
-mediante sus herramientas. El servicio guarda cada cambio y publica un evento.
+proyecto y las decisiones vigentes. Devuelve un plan con las tareas nuevas y los cambios de
+prioridad. El servicio lo aplica, guarda cada cambio y publica un evento (decisión D24).
 
 **Un worker toma trabajo.** El supervisor ve tareas en estado listo cuyo rol coincide con
 un agente que tiene un worker libre. Arranca el worker. El worker reclama la tarea con
