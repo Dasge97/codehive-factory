@@ -32,12 +32,14 @@ nueva que explique cómo se sustituye esa capacidad.
 
 ---
 
-## Fase 1 · Sistema utilizable — en construcción
+## Fase 1 · Sistema utilizable — TERMINADA el 6 de septiembre de 2026
 
-Hechas: F1-01 a F1-19 y F1-20 a F1-25. Quedan F1-26 y F1-27.
+Las 27 tareas están hechas y las 14 pruebas de aceptación pasan. El detalle está en
+[10 · Pruebas de aceptación](10-pruebas-aceptacion.md).
 
-El ciclo completo funcionó con agentes reales el 6 de septiembre de 2026. El detalle está
-en [10 · Pruebas de aceptación](10-pruebas-aceptacion.md).
+El ciclo completo funcionó también con agentes reales sobre el propio repositorio: el
+creador pidió una guía por el chat, el orquestador repartió, el builder la escribió, el
+reviewer la aprobó y el creador la integró.
 
 Objetivo: el creador pide un cambio, cuatro agentes lo construyen y lo revisan, y el
 creador integra desde la web.

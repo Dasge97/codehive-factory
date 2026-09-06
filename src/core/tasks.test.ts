@@ -51,9 +51,26 @@ describe('transiciones de estado', () => {
     expect(puedeTransicionar('ready', 'in_review')).toBe(false);
   });
 
-  it('no deja salir de un estado terminal', () => {
-    expect(puedeTransicionar('done', 'ready')).toBe(false);
+  it('una tarea cancelada no vuelve nunca', () => {
     expect(puedeTransicionar('cancelled', 'ready')).toBe(false);
+    expect(puedeTransicionar('cancelled', 'in_progress')).toBe(false);
+  });
+
+  it('una tarea terminada vuelve a la cola si su integración falla', () => {
+    expect(puedeTransicionar('done', 'ready')).toBe(true);
+    // Pero no salta directamente a ejecutarse ni vuelve a revisión.
+    expect(puedeTransicionar('done', 'in_progress')).toBe(false);
+    expect(puedeTransicionar('done', 'in_review')).toBe(false);
+  });
+
+  it('reabrir una tarea terminada le quita la fecha de cierre', () => {
+    const t = nuevaTarea();
+    setStatus(db, bus, t.id, 'in_progress');
+    setStatus(db, bus, t.id, 'done');
+    expect(requireTask(db, t.id).closed_at).not.toBeNull();
+
+    setStatus(db, bus, t.id, 'ready', 'la integración dio conflicto');
+    expect(requireTask(db, t.id).closed_at).toBeNull();
   });
 
   it('permite cancelar desde cualquier estado no terminal', () => {

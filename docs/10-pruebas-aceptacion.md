@@ -7,20 +7,23 @@ enseñar. Cada prueba dice qué se hace y qué hay que ver.
 
 | Prueba | Estado | Dónde se comprueba |
 | --- | --- | --- |
-| P1-01 Dos tareas independientes a la vez | Pasa | `src/core/queue.test.ts`, prueba «cada worker se lleva una tarea distinta». |
-| P1-02 Una corrección entra mientras sigue otro trabajo | Pasa | `src/core/review.test.ts`, pruebas de revisión con hallazgos. |
-| P1-03 Dos workers no reclaman la misma tarea | Pasa | `src/core/queue.test.ts`, prueba «dos workers a la vez». |
-| P1-04 Los bloqueos impiden el trabajo simultáneo sobre lo mismo | Pasa | `src/core/queue.test.ts`, bloque «bloqueos de recursos». |
-| P1-05 El sistema se recupera de un reinicio | Pasa | `src/core/queue.test.ts`, bloque «abandono de una ejecución». |
-| P1-06 Un cambio de requisito conserva el trabajo compatible | Pendiente | Falta la prueba del marcado para reevaluar. |
-| P1-07 Un conflicto de integración se gestiona | Pendiente | Falta una prueba con conflicto real de Git. |
-| P1-08 Una integración que rompe las verificaciones se deshace | Pendiente | Falta una prueba con verificación que falla. |
-| P1-09 Una corrección en bucle se detiene | Pasa | `src/workers/runner.test.ts`, límite de intentos. |
-| P1-10 La falta de cuota pausa sin romper nada | Parcial | El supervisor deja de arrancar workers. Falta provocarlo de verdad. |
-| P1-11 Una petición de autorización llega al creador | Pasa | `src/workers/runner.test.ts`, bloque «autorizaciones y consumo». |
-| P1-12 El creador integra | **Pasa con agentes reales** | Ver el apartado siguiente. |
-| P1-13 La web refleja el estado real | Pasa | `src/server/api.test.ts`, canal de eventos en vivo. |
-| P1-14 Recorrido completo del creador | **Pasa con agentes reales** | Ver el apartado siguiente. |
+| P1-01 Dos tareas independientes a la vez | Pasa | `supervisor.test.ts`: dos worktrees, dos ramas, dos incrementos y ejecuciones solapadas. |
+| P1-02 Una corrección entra mientras sigue otro trabajo | Pasa | `review.test.ts`, bloque «revisión con hallazgos». |
+| P1-03 Dos workers no reclaman la misma tarea | Pasa | `queue.test.ts`, prueba «dos workers a la vez». |
+| P1-04 Los bloqueos impiden el trabajo simultáneo sobre lo mismo | Pasa | `queue.test.ts`, bloque «bloqueos de recursos». |
+| P1-05 El sistema se recupera de un reinicio | Pasa | `supervisor.test.ts`, bloque «recuperación tras un reinicio». |
+| P1-06 Un cambio de requisito conserva el trabajo compatible | Pasa | `integration.test.ts`, bloque «cambio de requisito». |
+| P1-07 Un conflicto de integración se gestiona | Pasa | `integration.test.ts`, bloque «conflicto al fusionar». |
+| P1-08 Una integración que rompe las verificaciones se deshace | Pasa | `integration.test.ts`, bloque «la verificación falla tras fusionar». |
+| P1-09 Una corrección en bucle se detiene | Pasa | `runner.test.ts`, límite de intentos. |
+| P1-10 La falta de cuota pausa sin romper nada | Pasa | `supervisor.test.ts`, bloque «falta de cuota». |
+| P1-11 Una petición de autorización llega al creador | Pasa | `runner.test.ts`, bloque «autorizaciones y consumo». |
+| P1-12 El creador integra | Pasa, y también con agentes reales | `integration.test.ts` y el apartado siguiente. |
+| P1-13 La web refleja el estado real | Pasa | `api.test.ts`, canal de eventos en vivo. |
+| P1-14 Recorrido completo del creador | Pasa con agentes reales | Ver el apartado siguiente. |
+
+Las 14 pruebas pasan. El conjunto entero son 125 pruebas automáticas. Los ficheros citados
+están en `src/core/` y `src/workers/`.
 
 ## Primera ejecución real de principio a fin
 

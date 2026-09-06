@@ -467,6 +467,22 @@ que no contaba. Una tarea que nunca se cierra se reintentaba de forma indefinida
 
 ---
 
+## D29 · Una tarea terminada vuelve a la cola si su integración falla
+
+**Origen:** técnica, al escribir las pruebas de aceptación de la integración.
+
+De `done` se puede pasar a `ready`, y solo a `ready`. Es el único camino que sale de una
+tarea terminada. Al reabrirla se le quita la fecha de cierre.
+
+**Por qué:** una tarea aprobada sobre su rama aislada puede dar conflicto al fusionar, o
+romper las verificaciones una vez fusionada. Con `done` como estado terminal, la
+integración fallida no tenía forma de devolver la tarea al trabajo, y el flujo del
+apartado 7.7 del documento de flujo de trabajo era imposible de cumplir.
+
+**Qué sigue siendo terminal:** `cancelled`. Una tarea cancelada no vuelve nunca.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

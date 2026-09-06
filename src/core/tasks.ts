@@ -24,9 +24,15 @@ export class RuleError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Estados a los que puede pasar una tarea desde cada estado. Cancelar es posible desde
- * cualquier estado no terminal, porque es una decisión del creador que no debe depender
- * de en qué punto esté el trabajo.
+ * Estados a los que puede pasar una tarea desde cada estado.
+ *
+ * Cancelar es posible desde cualquier estado no terminal, porque es una decisión del
+ * creador que no debe depender de en qué punto esté el trabajo.
+ *
+ * De `done` solo se sale a `ready`, y solo por un motivo: la integración falló. Una tarea
+ * aprobada sobre su rama aislada puede dar conflicto al fusionar, o romper las
+ * verificaciones una vez fusionada, y entonces vuelve a necesitar trabajo (documento 07,
+ * apartado 7.7).
  */
 const TRANSICIONES: Record<TaskStatus, readonly TaskStatus[]> = {
   pending: ['ready', 'blocked', 'cancelled'],
@@ -34,7 +40,7 @@ const TRANSICIONES: Record<TaskStatus, readonly TaskStatus[]> = {
   in_progress: ['ready', 'in_review', 'blocked', 'done', 'cancelled'],
   in_review: ['ready', 'blocked', 'done', 'cancelled'],
   blocked: ['pending', 'ready', 'cancelled'],
-  done: [],
+  done: ['ready'],
   cancelled: [],
 };
 
@@ -261,7 +267,7 @@ export function setStatusInternal(
     `UPDATE tasks
      SET status = ?,
          blocked_reason = ?,
-         closed_at = CASE WHEN ? THEN ? ELSE closed_at END,
+         closed_at = CASE WHEN ? THEN ? ELSE NULL END,
          updated_at = ?
      WHERE id = ?`,
   ).run(nuevo, nuevo === 'blocked' ? motivo : null, cerrada ? 1 : 0, momento, momento, taskId);
