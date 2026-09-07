@@ -42,6 +42,71 @@ export async function isGitRepo(path: string): Promise<boolean> {
   }
 }
 
+export interface RepositorioCreado {
+  branch: string;
+  commit: string;
+  files: number;
+}
+
+/**
+ * Convierte una carpeta en un repositorio de Git con un primer commit.
+ *
+ * El primer commit hace falta de verdad, no es un adorno: cada tarea trabaja en un
+ * `git worktree` creado a partir de la rama principal, y `git worktree add` falla con
+ * «invalid reference» mientras el repositorio no tenga ningún commit.
+ *
+ * Todo lo que haya en la carpeta entra en ese commit, salvo lo que ignore un `.gitignore`
+ * que ya esté ahí. Sin contenido en el commit, el worktree de cada tarea saldría vacío y
+ * los agentes no tendrían delante el proyecto.
+ */
+export async function initRepo(path: string, mainBranch: string): Promise<RepositorioCreado> {
+  if (!(await isGitRepo(path))) {
+    await git(path, ['init', '-b', mainBranch]);
+  }
+
+  // Con commits ya hechos no hay nada que crear: la carpeta ya sirve.
+  const yaTieneCommits = await git(path, ['rev-parse', '--verify', 'HEAD'])
+    .then(() => true)
+    .catch(() => false);
+
+  if (yaTieneCommits) {
+    return {
+      branch: await ramaActual(path),
+      commit: await resolveCommit(path, 'HEAD'),
+      files: 0,
+    };
+  }
+
+  const sueltos = await git(path, ['ls-files', '-o', '--exclude-standard']);
+  const ficheros = sueltos ? sueltos.split('\n').length : 0;
+
+  if (ficheros > 0) await git(path, ['add', '-A']);
+
+  // El commit se hace con la identidad configurada. Si no hay ninguna, se usa una del
+  // sistema para que crear el repositorio no falle por algo que no es del proyecto.
+  const mensaje = 'Primer commit, creado al abrir la carpeta con Code Hive Factory';
+  try {
+    await git(path, ['commit', '--allow-empty', '-m', mensaje]);
+  } catch {
+    await git(path, [
+      '-c', 'user.name=Code Hive Factory',
+      '-c', 'user.email=codehive@localhost',
+      'commit', '--allow-empty', '-m', mensaje,
+    ]);
+  }
+
+  return {
+    branch: await ramaActual(path),
+    commit: await resolveCommit(path, 'HEAD'),
+    files: ficheros,
+  };
+}
+
+/** Nombre de la rama en la que está el repositorio ahora mismo. */
+export async function ramaActual(path: string): Promise<string> {
+  return git(path, ['rev-parse', '--abbrev-ref', 'HEAD']);
+}
+
 /** Identificador del commit al que apunta una referencia. */
 export async function resolveCommit(repoPath: string, ref: string): Promise<string> {
   return git(repoPath, ['rev-parse', ref]);

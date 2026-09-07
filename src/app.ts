@@ -20,7 +20,7 @@ import { EngineRegistry } from './engines/registry.js';
 import type { Engine } from './engines/types.js';
 import { createApi } from './server/api.js';
 import { Supervisor, recoverInterruptedRuns } from './workers/supervisor.js';
-import { isGitRepo } from './workers/git.js';
+import { initRepo, isGitRepo } from './workers/git.js';
 
 /** Contenido del fichero `codehive.project.json` que lleva cada proyecto gestionado. */
 export const projectConfigSchema = z.object({
@@ -192,11 +192,36 @@ export function dejarSoloEnMarcha(
   return requireProject(db, projectId);
 }
 
+/**
+ * Deja una carpeta lista para trabajar.
+ *
+ * Se puede abrir cualquier carpeta. Si no es un repositorio de Git, se crea uno con un
+ * primer commit que recoge lo que haya dentro.
+ *
+ * El commit no es un adorno. Cada tarea trabaja en un `git worktree` sacado de la rama
+ * principal, y un repositorio sin ningún commit no puede crear worktrees. Sin contenido en
+ * ese commit, además, el worktree saldría vacío y el agente no vería el proyecto.
+ */
+async function prepararCarpeta(ruta: string, mainBranch: string): Promise<void> {
+  if (await isGitRepo(ruta)) {
+    // Un repositorio recién creado a mano puede no tener ningún commit todavía.
+    await initRepo(ruta, mainBranch);
+    return;
+  }
+
+  const creado = await initRepo(ruta, mainBranch);
+  console.log(
+    `${ruta} no era un repositorio de Git. Se ha creado uno en la rama ${creado.branch}` +
+      `${creado.files > 0 ? ` con los ${creado.files} ficheros que había dentro` : ', vacío'}.`,
+  );
+}
+
 /** Monta el sistema completo: base de datos, motor, supervisor y servidor web. */
 export async function createApp(config: AppConfig): Promise<App> {
-  if (!(await isGitRepo(config.repoPath))) {
-    throw new Error(`${config.repoPath} no es un repositorio de Git. Ejecuta git init antes de registrarlo.`);
-  }
+  // Cualquier carpeta sirve. Si todavía no es un repositorio de Git, se convierte en uno:
+  // el sistema entero se apoya en ramas y worktrees, y no tiene sentido hacer que la
+  // persona salga a la terminal para algo que se hace en dos órdenes.
+  await prepararCarpeta(config.repoPath, readProjectConfig(config.repoPath).main_branch);
 
   // Si falta un fichero de instrucciones, es mejor no arrancar que descubrirlo a mitad de
   // una tarea, cuando ya se ha gastado una ejecución del motor.
@@ -232,16 +257,14 @@ export async function createApp(config: AppConfig): Promise<App> {
     if (!existsSync(destino)) {
       throw new Error(`La carpeta ${destino} no existe.`);
     }
-    if (!(await isGitRepo(destino))) {
-      throw new Error(
-        `${destino} no es un repositorio de Git. Ejecuta git init dentro de la carpeta antes de abrirla.`,
-      );
-    }
+
+    const configuracion = readProjectConfig(destino);
+    await prepararCarpeta(destino, configuracion.main_branch);
 
     const abierto = ensureProject(
       db,
       destino,
-      readProjectConfig(destino),
+      configuracion,
       null,
       engines.available().map((m) => m.name),
     );

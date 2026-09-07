@@ -120,6 +120,10 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
           <div className="bloque">
             <h3>Buscar en el disco</h3>
             <p style={{ fontSize: 12.5, color: 'var(--texto-suave)' }}>
+              Se puede abrir cualquier carpeta. Las marcadas como repositorio ya lo son; en
+              las demás se crea uno al abrirlas.
+            </p>
+            <p style={{ fontSize: 12.5, color: 'var(--texto-suave)' }}>
               El explorador de Windows se abre en el equipo donde corre el sistema. Desde el
               móvil no lo verás, así que ahí tienes que navegar con los botones de abajo.
             </p>
@@ -159,21 +163,22 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
                   ))}
                 </div>
 
-                {carpeta.is_git_repo ? (
-                  <button
-                    className="boton principal"
-                    disabled={trabajando}
-                    onClick={() => void abrir(carpeta.path)}
-                    title="Trabajar sobre esta carpeta"
-                  >
-                    Abrir esta carpeta
-                  </button>
-                ) : (
-                  // Un botón apagado se lee como una etiqueta y confunde. Si la carpeta no
-                  // sirve, se dice con una frase y ya está.
-                  <p className="nota">
-                    Esta carpeta no es un repositorio de Git. Entra en una de las marcadas
-                    como repositorio, o crea uno con <code>git init</code>.
+                <button
+                  className="boton principal"
+                  disabled={trabajando}
+                  onClick={() => void abrir(carpeta.path)}
+                  title="Trabajar sobre esta carpeta"
+                >
+                  Abrir esta carpeta
+                </button>
+
+                {!carpeta.is_git_repo && (
+                  // Se puede abrir igual. Solo conviene saber que al hacerlo la carpeta
+                  // pasa a ser un repositorio, porque el sistema trabaja con ramas.
+                  <p className="nota" style={{ marginTop: 6 }}>
+                    Todavía no es un repositorio de Git. Al abrirla se crea uno con lo que
+                    haya dentro, que es lo que necesitan los agentes para trabajar cada
+                    tarea en su propia rama.
                   </p>
                 )}
 
@@ -197,16 +202,18 @@ Pulsa para entrar.`}
                         primero. Entrar y luego subir a buscar el botón de arriba era el
                         camino largo para lo que más se hace.
                       */}
-                      {e.is_git_repo && (
-                        <button
-                          className="boton pequeno principal abrir-fila"
-                          disabled={trabajando}
-                          onClick={() => void abrir(e.path)}
-                          title={`Trabajar sobre ${e.path}`}
-                        >
-                          Abrir
-                        </button>
-                      )}
+                      <button
+                        className="boton pequeno principal abrir-fila"
+                        disabled={trabajando}
+                        onClick={() => void abrir(e.path)}
+                        title={
+                          e.is_git_repo
+                            ? `Trabajar sobre ${e.path}`
+                            : `Trabajar sobre ${e.path}. Al abrirla se crea el repositorio de Git.`
+                        }
+                      >
+                        Abrir
+                      </button>
                     </li>
                   ))}
                 </ul>

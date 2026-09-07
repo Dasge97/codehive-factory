@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createApp, type App } from '../app.js';
 import { FakeEngine, planDeOrquestador, resultadoDeAgente } from '../engines/fake-engine.js';
 import { createTask, requireTask } from '../core/tasks.js';
 import { claimTask } from '../core/queue.js';
 import { publishIncrement } from '../core/review.js';
 import { agentForRole } from '../core/projects.js';
-import { git } from '../workers/git.js';
+import { git, isGitRepo } from '../workers/git.js';
 import { AGENT_ROLES } from '../shared/types.js';
 
 let app: App;
@@ -320,12 +320,21 @@ describe('abrir otra carpeta', () => {
     expect((await get('/api/projects')).body).toHaveLength(2);
   });
 
-  it('una carpeta que no es un repositorio de Git se rechaza con un motivo claro', async () => {
+  it('una carpeta que no es un repositorio de Git se abre igual, creando uno', async () => {
     const suelta = mkdtempSync(join(tmpdir(), 'chf-suelta-'));
+    writeFileSync(join(suelta, 'index.js'), 'console.log(1);');
+
     try {
       const r = await post('/api/projects/open', { path: suelta });
-      expect(r.status).toBe(400);
-      expect(r.body.error).toContain('git init');
+
+      expect(r.status).toBe(200);
+      expect(r.body.repo_path).toBe(resolve(suelta));
+
+      // La carpeta pasa a ser un repositorio con su primer commit, que es lo que necesitan
+      // los worktrees de cada tarea.
+      expect(await isGitRepo(suelta)).toBe(true);
+      const enElCommit = await git(suelta, ['ls-tree', '-r', '--name-only', 'HEAD']);
+      expect(enElCommit).toContain('index.js');
     } finally {
       rmSync(suelta, { recursive: true, force: true });
     }
