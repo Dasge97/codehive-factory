@@ -91,6 +91,54 @@ describe('lo que el agente dice no se corta', () => {
   });
 });
 
+describe('el texto del agente se formatea en su panel', () => {
+  function agenteDePrueba(): AgentView {
+    return {
+      id: 'agt_1', name: 'Investigador', role: 'researcher', engine: 'claude_code', model: null,
+      allowed_tools: [], max_workers: 1, enabled: 1, busy_workers: 0, current_tasks: [], queue_length: 0,
+    };
+  }
+
+  it('los dobles asteriscos se pintan como resalte, no en crudo', () => {
+    const { container } = render(
+      <PanelAgente
+        agente={agenteDePrueba()}
+        tareas={[]}
+        pasos={[
+          {
+            id: 1,
+            hora: '12:00',
+            texto: 'Respuesta corta a la pregunta principal: **no**.',
+            herramienta: null,
+            esError: false,
+            clase: 'dice',
+          },
+        ]}
+        alAbrirTarea={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector('.paso-agente strong')?.textContent).toBe('no');
+    expect(container.querySelector('.paso-agente .texto')?.textContent).not.toContain('*');
+  });
+
+  it('lo que hace el agente no se formatea: ahí se resaltan los datos', () => {
+    const { container } = render(
+      <PanelAgente
+        agente={agenteDePrueba()}
+        tareas={[]}
+        pasos={[
+          { id: 1, hora: '12:00', texto: 'lee src/core/db.ts', herramienta: 'Read', esError: false, clase: 'hace' },
+        ]}
+        alAbrirTarea={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector('.paso-agente .dato')?.textContent).toBe('src/core/db.ts');
+    expect(container.querySelector('.paso-agente .texto-formateado')).toBeNull();
+  });
+});
+
 describe('resaltado dentro de un paso', () => {
   const destacados = (texto: string) =>
     trozosDelPaso(texto).filter((t) => t.destacado).map((t) => t.texto);

@@ -1558,3 +1558,27 @@ details > summary {
     animation: none;
   }
 }
+
+/*
+ * El texto formateado dentro del registro de un agente va más apretado que en el chat: son
+ * muchos pasos seguidos y cada uno ocupa poco.
+ */
+.paso-agente .texto-formateado p {
+  margin: 0 0 4px;
+}
+
+.paso-agente .texto-formateado ul,
+.paso-agente .texto-formateado ol {
+  margin: 3px 0 4px;
+  padding-left: 16px;
+}
+
+.paso-agente .texto-formateado code {
+  font-size: 11px;
+  background: var(--superficie);
+  padding: 0 3px;
+}
+
+.paso-agente .texto-formateado strong {
+  color: var(--texto);
+}

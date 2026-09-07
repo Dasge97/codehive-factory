@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { AgentView, SystemEvent, Task } from '../api';
 import { hora } from './Estado';
+import { Texto } from './Texto';
 
 /**
  * Recorta un texto a lo que cabe en el panel, sin cortar a mitad de palabra si se puede.
@@ -268,14 +269,26 @@ export function PanelAgente({
               <span className="hora">{paso.hora}</span>
               {paso.herramienta && <span className="herramienta">{paso.herramienta}</span>}
               <span className="texto">
-                {trozosDelPaso(paso.texto).map((trozo, i) =>
-                  trozo.destacado ? (
-                    <span className="dato" key={i}>
-                      {trozo.texto}
-                    </span>
-                  ) : (
-                    <span key={i}>{trozo.texto}</span>
-                  ),
+                {/*
+                  Lo que el agente dice lo escribe él, con las marcas de siempre: dobles
+                  asteriscos para resaltar y comillas invertidas para el código. Se pinta
+                  con el mismo formateador que el chat.
+
+                  Lo que hace y lo que recibe son frases que arma el sistema, no las
+                  escribe ningún modelo, así que ahí se resaltan los datos por su forma.
+                */}
+                {paso.clase === 'dice' ? (
+                  <Texto>{paso.texto}</Texto>
+                ) : (
+                  trozosDelPaso(paso.texto).map((trozo, i) =>
+                    trozo.destacado ? (
+                      <span className="dato" key={i}>
+                        {trozo.texto}
+                      </span>
+                    ) : (
+                      <span key={i}>{trozo.texto}</span>
+                    ),
+                  )
                 )}
               </span>
             </div>
