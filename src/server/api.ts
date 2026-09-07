@@ -37,6 +37,7 @@ import {
 import type { Supervisor } from '../workers/supervisor.js';
 import type { EngineRegistry } from '../engines/registry.js';
 import { elegirCarpetaNativa, haySelectorNativo } from './selector-carpeta.js';
+import { DemasiadosFicheros } from '../workers/git.js';
 
 export interface ApiDeps {
   db: Db;
@@ -45,7 +46,7 @@ export interface ApiDeps {
   /** Motores disponibles. Sirve para no dejar configurar uno que no está instalado. */
   engines?: EngineRegistry;
   /** Abre una carpeta del disco y la deja como el proyecto en marcha. */
-  abrirCarpeta?: (ruta: string) => Promise<Project>;
+  abrirCarpeta?: (ruta: string, confirmado?: boolean) => Promise<Project>;
   /** Carpeta con la web ya compilada. Si no existe, el servidor solo ofrece la API. */
   webDir?: string;
 }
@@ -97,10 +98,21 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
       }
 
       try {
-        res.json(await abrirCarpeta(ruta));
+        res.json(await abrirCarpeta(ruta, req.body?.confirm === true));
       } catch (e) {
-        // No poder abrir una carpeta es una respuesta normal, no un fallo del servicio: la
-        // ruta no existe, o no es un repositorio de Git.
+        // Demasiados ficheros no es un error: es una pregunta. La carpeta se puede abrir
+        // igual, pero conviene que la persona sepa que va a hacer un commit enorme antes
+        // de esperar varios minutos a que termine.
+        if (e instanceof DemasiadosFicheros) {
+          res.status(409).json({
+            error: e.message,
+            needs_confirmation: true,
+            files: e.files,
+          });
+          return;
+        }
+
+        // No poder abrir una carpeta es una respuesta normal, no un fallo del servicio.
         res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
       }
     }),

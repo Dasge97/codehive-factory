@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type CarpetaListada, type ProyectoRegistrado } from '../api';
+import { NecesitaConfirmar, api, type CarpetaListada, type ProyectoRegistrado } from '../api';
 
 interface Props {
   /** Carpeta que está abierta ahora, por la que empieza el explorador. */
@@ -22,6 +22,9 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
   const [recientes, setRecientes] = useState<ProyectoRegistrado[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
+  // Una carpeta con miles de ficheros se puede abrir igual, pero antes se dice lo que va a
+  // pasar: el primer commit se los lleva todos y tarda minutos.
+  const [confirmar, setConfirmar] = useState<{ ruta: string; mensaje: string } | null>(null);
 
   const explorar = useCallback(async (ruta?: string) => {
     setAviso(null);
@@ -64,13 +67,18 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
     }
   }
 
-  async function abrir(ruta: string) {
+  async function abrir(ruta: string, confirmado = false) {
     setTrabajando(true);
     setAviso(null);
+    setConfirmar(null);
     try {
-      alAbrir(await api.abrirCarpeta(ruta));
+      alAbrir(await api.abrirCarpeta(ruta, confirmado));
     } catch (e) {
-      setAviso(e instanceof Error ? e.message : String(e));
+      if (e instanceof NecesitaConfirmar) {
+        setConfirmar({ ruta, mensaje: e.message });
+      } else {
+        setAviso(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setTrabajando(false);
     }
@@ -94,6 +102,28 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
 
         <div className="contenido">
           {aviso && <div className="aviso desconectado">{aviso}</div>}
+
+          {confirmar && (
+            <div className="aviso">
+              <span>
+                {confirmar.mensaje} Tardará varios minutos y dejará todo dentro del
+                repositorio. Si la carpeta tiene varios proyectos sueltos, o dependencias
+                sin ignorar, seguramente quieras abrir una carpeta más concreta.
+              </span>
+              <div className="acciones">
+                <button
+                  className="boton pequeno"
+                  disabled={trabajando}
+                  onClick={() => void abrir(confirmar.ruta, true)}
+                >
+                  Abrirla igualmente
+                </button>
+                <button className="boton pequeno" onClick={() => setConfirmar(null)}>
+                  Dejarlo
+                </button>
+              </div>
+            </div>
+          )}
 
           {recientes.length > 0 && (
             <div className="bloque">

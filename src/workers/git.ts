@@ -25,12 +25,34 @@ export async function git(cwd: string, args: string[], opciones: { timeoutMs?: n
     });
     return stdout.trim();
   } catch (e) {
-    const error = e as { stderr?: string; message?: string };
-    throw new GitError(
-      `git ${args.join(' ')} falló en ${cwd}: ${error.stderr?.trim() || error.message || 'error desconocido'}`,
-      error.stderr ?? '',
-    );
+    const error = e as { stderr?: string; message?: string; killed?: boolean };
+
+    // Si se acabó el tiempo, el motivo es ese y no lo que git hubiera escrito por el
+    // camino. Sin esta distinción, un `git add` que tarda demasiado se presenta como un
+    // muro de avisos de fin de línea y no se entiende qué ha pasado.
+    if (error.killed) {
+      throw new GitError(
+        `git ${args.join(' ')} se ha pasado del tiempo máximo en ${cwd}.`,
+        error.stderr ?? '',
+      );
+    }
+
+    const motivo = error.stderr?.trim() || error.message || 'error desconocido';
+    throw new GitError(`git ${args.join(' ')} falló en ${cwd}: ${recortarSalida(motivo)}`, error.stderr ?? '');
   }
+}
+
+/**
+ * Cuánto de la salida de git cabe en un mensaje de error.
+ *
+ * Un comando sobre miles de ficheros escribe un aviso por cada uno. Enseñarlos todos tapa
+ * el motivo del fallo, que casi siempre está en las primeras líneas.
+ */
+const LARGO_DEL_ERROR = 400;
+
+function recortarSalida(texto: string): string {
+  const limpio = texto.replace(/\s+/g, ' ').trim();
+  return limpio.length <= LARGO_DEL_ERROR ? limpio : `${limpio.slice(0, LARGO_DEL_ERROR)}…`;
 }
 
 export async function isGitRepo(path: string): Promise<boolean> {
@@ -39,6 +61,28 @@ export async function isGitRepo(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * A partir de aquí, crear el repositorio deja de ser un trámite.
+ *
+ * Meter miles de ficheros en el primer commit tarda minutos y casi nunca es lo que se
+ * quiere: suele significar que la carpeta tiene dentro varios proyectos sueltos, o
+ * dependencias que nadie ha ignorado. Por encima de este número se pregunta antes.
+ */
+export const FICHEROS_QUE_PIDEN_CONFIRMAR = 2000;
+
+/** Lo lanza `initRepo` cuando el primer commit se llevaría demasiados ficheros. */
+export class DemasiadosFicheros extends Error {
+  constructor(
+    readonly files: number,
+    readonly path: string,
+  ) {
+    super(
+      `La carpeta tiene ${files.toLocaleString('es-ES')} ficheros sin ignorar, y todos entrarían en el primer commit.`,
+    );
+    this.name = 'DemasiadosFicheros';
   }
 }
 
@@ -59,7 +103,11 @@ export interface RepositorioCreado {
  * que ya esté ahí. Sin contenido en el commit, el worktree de cada tarea saldría vacío y
  * los agentes no tendrían delante el proyecto.
  */
-export async function initRepo(path: string, mainBranch: string): Promise<RepositorioCreado> {
+export async function initRepo(
+  path: string,
+  mainBranch: string,
+  opciones: { confirmado?: boolean } = {},
+): Promise<RepositorioCreado> {
   if (!(await isGitRepo(path))) {
     await git(path, ['init', '-b', mainBranch]);
   }
@@ -80,19 +128,30 @@ export async function initRepo(path: string, mainBranch: string): Promise<Reposi
   const sueltos = await git(path, ['ls-files', '-o', '--exclude-standard']);
   const ficheros = sueltos ? sueltos.split('\n').length : 0;
 
-  if (ficheros > 0) await git(path, ['add', '-A']);
+  if (ficheros > FICHEROS_QUE_PIDEN_CONFIRMAR && !opciones.confirmado) {
+    throw new DemasiadosFicheros(ficheros, path);
+  }
+
+  // El primer commit de una carpeta grande tarda minutos y es cosa de una sola vez. Con el
+  // tiempo máximo normal, dos minutos, se quedaba a medias.
+  if (ficheros > 0) await git(path, ['add', '-A'], { timeoutMs: 900_000 });
 
   // El commit se hace con la identidad configurada. Si no hay ninguna, se usa una del
   // sistema para que crear el repositorio no falle por algo que no es del proyecto.
   const mensaje = 'Primer commit, creado al abrir la carpeta con Code Hive Factory';
+  const tiempo = { timeoutMs: 900_000 };
   try {
-    await git(path, ['commit', '--allow-empty', '-m', mensaje]);
+    await git(path, ['commit', '--allow-empty', '-m', mensaje], tiempo);
   } catch {
-    await git(path, [
-      '-c', 'user.name=Code Hive Factory',
-      '-c', 'user.email=codehive@localhost',
-      'commit', '--allow-empty', '-m', mensaje,
-    ]);
+    await git(
+      path,
+      [
+        '-c', 'user.name=Code Hive Factory',
+        '-c', 'user.email=codehive@localhost',
+        'commit', '--allow-empty', '-m', mensaje,
+      ],
+      tiempo,
+    );
   }
 
   return {

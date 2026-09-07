@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensureWorktree, git, initRepo, isGitRepo, ramaActual } from './git.js';
+import {
+  DemasiadosFicheros,
+  FICHEROS_QUE_PIDEN_CONFIRMAR,
+  ensureWorktree,
+  git,
+  initRepo,
+  isGitRepo,
+  ramaActual,
+} from './git.js';
 
 /**
  * Se puede abrir cualquier carpeta, sea o no un repositorio de Git.
@@ -19,7 +27,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(carpeta, { recursive: true, force: true });
+  // En Windows, git deja los ficheros ocupados un instante después de terminar, y borrar
+  // la carpeta justo entonces falla con EBUSY. Los reintentos son de la limpieza, no de
+  // nada que se esté probando.
+  rmSync(carpeta, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe('abrir una carpeta que no es un repositorio', () => {
@@ -75,7 +86,7 @@ describe('abrir una carpeta que no es un repositorio', () => {
       expect(worktree.created).toBe(true);
       expect(worktree.baseCommit).toHaveLength(40);
     } finally {
-      rmSync(destino, { recursive: true, force: true });
+      rmSync(destino, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 });
@@ -102,5 +113,43 @@ describe('abrir una carpeta que ya es un repositorio', () => {
 
     expect(creado.commit).toHaveLength(40);
     expect(creado.files).toBe(1);
+  });
+});
+
+describe('una carpeta con muchísimos ficheros pregunta antes', () => {
+  /** Crea tantos ficheros sueltos como haga falta para pasarse del límite. */
+  function llenar(cuantos: number): void {
+    for (let i = 0; i < cuantos; i++) {
+      const sub = join(carpeta, `d${Math.floor(i / 200)}`);
+      mkdirSync(sub, { recursive: true });
+      writeFileSync(join(sub, `f${i}.js`), '// x');
+    }
+  }
+
+  it('no hace el commit sin confirmar, y dice cuántos ficheros son', async () => {
+    const cuantos = FICHEROS_QUE_PIDEN_CONFIRMAR + 10;
+    llenar(cuantos);
+
+    await expect(initRepo(carpeta, 'main')).rejects.toBeInstanceOf(DemasiadosFicheros);
+
+    // La carpeta queda como repositorio, pero sin ningún commit: nada se ha llevado.
+    expect(await isGitRepo(carpeta)).toBe(true);
+    await expect(git(carpeta, ['rev-parse', '--verify', 'HEAD'])).rejects.toThrow();
+  }, 60_000);
+
+  it('confirmando, se abre igual y el commit se los lleva todos', async () => {
+    const cuantos = FICHEROS_QUE_PIDEN_CONFIRMAR + 10;
+    llenar(cuantos);
+
+    const creado = await initRepo(carpeta, 'main', { confirmado: true });
+
+    expect(creado.files).toBe(cuantos);
+    expect(creado.commit).toHaveLength(40);
+  }, 60_000);
+
+  it('por debajo del límite no pregunta nada', async () => {
+    llenar(5);
+    const creado = await initRepo(carpeta, 'main');
+    expect(creado.files).toBe(5);
   });
 });

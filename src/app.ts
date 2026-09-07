@@ -202,14 +202,18 @@ export function dejarSoloEnMarcha(
  * principal, y un repositorio sin ningún commit no puede crear worktrees. Sin contenido en
  * ese commit, además, el worktree saldría vacío y el agente no vería el proyecto.
  */
-async function prepararCarpeta(ruta: string, mainBranch: string): Promise<void> {
+async function prepararCarpeta(
+  ruta: string,
+  mainBranch: string,
+  confirmado = false,
+): Promise<void> {
   if (await isGitRepo(ruta)) {
     // Un repositorio recién creado a mano puede no tener ningún commit todavía.
-    await initRepo(ruta, mainBranch);
+    await initRepo(ruta, mainBranch, { confirmado });
     return;
   }
 
-  const creado = await initRepo(ruta, mainBranch);
+  const creado = await initRepo(ruta, mainBranch, { confirmado });
   console.log(
     `${ruta} no era un repositorio de Git. Se ha creado uno en la rama ${creado.branch}` +
       `${creado.files > 0 ? ` con los ${creado.files} ficheros que había dentro` : ', vacío'}.`,
@@ -221,7 +225,7 @@ export async function createApp(config: AppConfig): Promise<App> {
   // Cualquier carpeta sirve. Si todavía no es un repositorio de Git, se convierte en uno:
   // el sistema entero se apoya en ramas y worktrees, y no tiene sentido hacer que la
   // persona salga a la terminal para algo que se hace en dos órdenes.
-  await prepararCarpeta(config.repoPath, readProjectConfig(config.repoPath).main_branch);
+  await prepararCarpeta(config.repoPath, readProjectConfig(config.repoPath).main_branch, true);
 
   // Si falta un fichero de instrucciones, es mejor no arrancar que descubrirlo a mitad de
   // una tarea, cuando ya se ha gastado una ejecución del motor.
@@ -251,7 +255,7 @@ export async function createApp(config: AppConfig): Promise<App> {
    * Registra la carpeta si es la primera vez que se abre, y la reutiliza si ya estaba:
    * volver a una carpeta anterior recupera su equipo, sus tareas y su conversación.
    */
-  async function abrirCarpeta(ruta: string): Promise<Project> {
+  async function abrirCarpeta(ruta: string, confirmado = false): Promise<Project> {
     const destino = resolve(ruta);
 
     if (!existsSync(destino)) {
@@ -259,7 +263,7 @@ export async function createApp(config: AppConfig): Promise<App> {
     }
 
     const configuracion = readProjectConfig(destino);
-    await prepararCarpeta(destino, configuracion.main_branch);
+    await prepararCarpeta(destino, configuracion.main_branch, confirmado);
 
     const abierto = ensureProject(
       db,
