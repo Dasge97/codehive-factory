@@ -159,20 +159,23 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
                   ))}
                 </div>
 
-                <button
-                  className="boton"
-                  disabled={!carpeta.is_git_repo || trabajando}
-                  onClick={() => void abrir(carpeta.path)}
-                  title={
-                    carpeta.is_git_repo
-                      ? 'Trabajar sobre esta carpeta'
-                      : 'Solo se pueden abrir carpetas que sean un repositorio de Git'
-                  }
-                >
-                  {carpeta.is_git_repo
-                    ? 'Abrir esta carpeta'
-                    : 'Esta carpeta no es un repositorio de Git'}
-                </button>
+                {carpeta.is_git_repo ? (
+                  <button
+                    className="boton principal"
+                    disabled={trabajando}
+                    onClick={() => void abrir(carpeta.path)}
+                    title="Trabajar sobre esta carpeta"
+                  >
+                    Abrir esta carpeta
+                  </button>
+                ) : (
+                  // Un botón apagado se lee como una etiqueta y confunde. Si la carpeta no
+                  // sirve, se dice con una frase y ya está.
+                  <p className="nota">
+                    Esta carpeta no es un repositorio de Git. Entra en una de las marcadas
+                    como repositorio, o crea uno con <code>git init</code>.
+                  </p>
+                )}
 
                 <ul className="lista-carpetas" style={{ marginTop: 10 }}>
                   {carpeta.entries.length === 0 && <li className="vacio">No hay ninguna carpeta dentro.</li>}
@@ -182,11 +185,28 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
                         className="carpeta"
                         disabled={trabajando}
                         onClick={() => void explorar(e.path)}
-                        title={e.path}
+                        title={`${e.path}
+Pulsa para entrar.`}
                       >
                         <span className="nombre">{e.name}</span>
                         {e.is_git_repo && <span className="etiqueta">repositorio</span>}
                       </button>
+
+                      {/*
+                        Una carpeta que es un repositorio se abre desde aquí, sin entrar
+                        primero. Entrar y luego subir a buscar el botón de arriba era el
+                        camino largo para lo que más se hace.
+                      */}
+                      {e.is_git_repo && (
+                        <button
+                          className="boton pequeno principal abrir-fila"
+                          disabled={trabajando}
+                          onClick={() => void abrir(e.path)}
+                          title={`Trabajar sobre ${e.path}`}
+                        >
+                          Abrir
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

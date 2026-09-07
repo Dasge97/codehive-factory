@@ -1804,3 +1804,32 @@ details > summary {
 .consumo.caducada .barra-consumo {
   display: none;
 }
+
+/*
+ * Cada fila del explorador: el nombre abre la carpeta para seguir bajando, y el botón de
+ * la derecha la abre como proyecto cuando es un repositorio.
+ */
+.lista-carpetas li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lista-carpetas .abrir-fila {
+  flex: 0 0 auto;
+}
+
+.detalle .nota {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--texto-suave);
+}
+
+.detalle .nota code {
+  font-family: var(--fuente-mono);
+  font-size: 11.5px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borde);
+  border-radius: 3px;
+  padding: 0 4px;
+}
