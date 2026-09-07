@@ -199,10 +199,10 @@ button {
  * Los agentes se colocan solos alrededor. Los dos primeros a la izquierda y los dos
  * siguientes a la derecha, en el orden en que llegan.
  */
-.cuerpo > .agente-panel:not(.chat):nth-of-type(2) { grid-column: 1; grid-row: 1; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(3) { grid-column: 1; grid-row: 2; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(4) { grid-column: 3; grid-row: 1; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(5) { grid-column: 3; grid-row: 2; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(2) { grid-column: 1; grid-row: 1; transform-origin: top left; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(3) { grid-column: 1; grid-row: 2; transform-origin: bottom left; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(4) { grid-column: 3; grid-row: 1; transform-origin: top right; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(5) { grid-column: 3; grid-row: 2; transform-origin: bottom right; }
 
 /*
  * El panel que pulsas se pone delante y crece un poco; los demás se quedan atenuados
@@ -222,9 +222,25 @@ button {
 
 .cuerpo > .agente-panel.enfocado {
   opacity: 1;
-  transform: scale(1.035);
   z-index: 3;
-  box-shadow: 0 14px 34px rgb(0 0 0 / 24%);
+  box-shadow: 0 18px 46px rgb(0 0 0 / 32%);
+}
+
+/*
+ * Los agentes de los lados crecen mucho al enfocarlos, hasta pasar del 60% del ancho de
+ * la pantalla. Su sitio en la rejilla es pequeño y el texto de dentro no se lee sin
+ * agrandarlo. Tapan parte de los demás, que es lo que se busca.
+ *
+ * Crecen desde su esquina, no desde el centro, para no salirse por el borde. La esquina
+ * de cada uno va con su colocación en la rejilla, más abajo.
+ */
+.cuerpo > .agente-panel:not(.chat).enfocado {
+  transform: scale(1.95);
+}
+
+/* El orquestador ya ocupa la columna del medio entera, así que solo se marca. */
+.cuerpo > .agente-panel.chat.enfocado {
+  transform: scale(1.015);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -232,7 +248,9 @@ button {
     transition: none;
   }
 
-  .cuerpo > .agente-panel.enfocado {
+  .cuerpo > .agente-panel.enfocado,
+  .cuerpo > .agente-panel:not(.chat).enfocado,
+  .cuerpo > .agente-panel.chat.enfocado {
     transform: none;
   }
 }
@@ -1302,7 +1320,9 @@ details > summary {
     opacity: 1;
   }
 
-  .cuerpo > .agente-panel.enfocado {
+  .cuerpo > .agente-panel.enfocado,
+  .cuerpo > .agente-panel:not(.chat).enfocado,
+  .cuerpo > .agente-panel.chat.enfocado {
     transform: none;
   }
 
@@ -1429,4 +1449,45 @@ details > summary {
   background: var(--acento-suave);
   color: var(--acento-texto);
   font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Paneles que entran por el lado                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Ajustes, el trabajo del proyecto y el detalle de una tarea entran deslizándose desde el
+ * borde derecho, para que se lean como un menú que se abre y no como algo que aparece de
+ * golpe encima.
+ *
+ * Solo se anima la entrada. Al cerrar desaparecen al momento, porque el panel deja de
+ * existir en cuanto se pulsa cerrar.
+ */
+@keyframes aparecer-fondo {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes entrar-desde-el-lado {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.cajon-fondo,
+.detalle-fondo {
+  animation: aparecer-fondo 140ms ease-out;
+}
+
+.cajon,
+.detalle {
+  animation: entrar-desde-el-lado 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cajon-fondo,
+  .detalle-fondo,
+  .cajon,
+  .detalle {
+    animation: none;
+  }
 }

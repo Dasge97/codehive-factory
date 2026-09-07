@@ -220,6 +220,7 @@ export function App() {
         tareasAtascadas={atascadas}
         listasParaIntegrar={resumen.integrable.length}
         alCambiarModo={(modo) => void api.cambiarModo(resumen.project.id, modo).then(recargarTodo)}
+        alQuitarFoco={() => setFoco(null)}
       />
 
       <div className="avisos">

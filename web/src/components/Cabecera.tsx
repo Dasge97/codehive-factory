@@ -13,6 +13,8 @@ interface Props {
   tareasAtascadas: number;
   listasParaIntegrar: number;
   alCambiarModo: (modo: ProjectMode) => void;
+  /** Pulsar en la cabecera quita el foco del agente que lo tuviera. */
+  alQuitarFoco: () => void;
 }
 
 /**
@@ -34,12 +36,13 @@ export function Cabecera({
   tareasAtascadas,
   listasParaIntegrar,
   alCambiarModo,
+  alQuitarFoco,
 }: Props) {
   const trabajando = agentes.filter((a) => a.busy_workers > 0).length;
   const uso = resumen.usage.find((u) => u.engine === 'claude_code');
 
   return (
-    <header className="cabecera">
+    <header className="cabecera" onMouseDown={alQuitarFoco}>
       <div className="identidad">
         <h1>{resumen.project.name}</h1>
         <p className="ubicacion">

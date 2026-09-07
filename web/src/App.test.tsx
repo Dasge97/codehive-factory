@@ -346,6 +346,20 @@ describe('foco en un agente', () => {
     expect(container.querySelector('.agente-panel.chat.enfocado')).not.toBeNull();
   });
 
+  it('pulsar en la cabecera quita el foco', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
+
+    await userEvent.click(screen.getByText('Builder'));
+    expect(container.querySelector('.cuerpo.con-foco')).not.toBeNull();
+
+    // Cualquier sitio de la cabecera vale, también sus botones.
+    await userEvent.click(screen.getByRole('heading', { name: 'Code Hive Factory', level: 1 }));
+
+    expect(container.querySelector('.cuerpo.con-foco')).toBeNull();
+    expect(container.querySelector('.agente-panel.enfocado')).toBeNull();
+  });
+
   it('con Escape todos vuelven a verse igual', async () => {
     const { container } = render(<App />);
     await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
