@@ -16,6 +16,7 @@ let consumo: Array<Record<string, unknown>>;
 let estadoProyecto: string;
 let modoProyecto: 'normal' | 'strict';
 let agenteDesactivado: boolean;
+let conversaciones: Array<Record<string, unknown>>;
 let motoresInstalados: Array<Record<string, unknown>>;
 let motoresAusentes: Array<Record<string, unknown>>;
 let orquestadorTrabajando: boolean;
@@ -100,6 +101,26 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
 
   if (ruta.startsWith(`/api/projects/${PROYECTO}/activity`)) return respuesta([]);
 
+  if (ruta === `/api/projects/${PROYECTO}/conversations`) {
+    if (metodo === 'POST') {
+      const nueva = {
+        id: 'cnv_' + (conversaciones.length + 1), project_id: PROYECTO, title: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        messages: 0, last_message_at: null, is_current: 1,
+      };
+      conversaciones = [nueva, ...conversaciones.map((c) => ({ ...c, is_current: 0 }))];
+      mensajes = [];
+      return respuesta(nueva, 201);
+    }
+    return respuesta(conversaciones);
+  }
+
+  if (ruta.includes('/conversations/') && ruta.endsWith('/open')) {
+    const id = ruta.split('/conversations/')[1]!.replace('/open', '');
+    conversaciones = conversaciones.map((c) => ({ ...c, is_current: c['id'] === id ? 1 : 0 }));
+    return respuesta(conversaciones.find((c) => c['id'] === id));
+  }
+
   if (ruta === '/api/engines') {
     return respuesta({ available: motoresInstalados, unavailable: motoresAusentes });
   }
@@ -170,6 +191,13 @@ beforeEach(() => {
   estadoProyecto = 'active';
   modoProyecto = 'normal';
   agenteDesactivado = false;
+  conversaciones = [
+    {
+      id: 'cnv_1', project_id: PROYECTO, title: 'Añade la validación de nombres',
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      messages: 2, last_message_at: new Date().toISOString(), is_current: 1,
+    },
+  ];
   motoresInstalados = [
     {
       name: 'claude_code',
@@ -323,6 +351,40 @@ describe('estado del equipo en la cabecera', () => {
     expect(container.querySelector('.chip-pausa')).not.toBeNull();
     const puntos = Array.from(container.querySelectorAll('.punto-agente'));
     expect(puntos[1]!.getAttribute('data-estado')).toBe('pausa');
+  });
+});
+
+describe('conversaciones con el orquestador', () => {
+  it('empezar una nueva deja el chat en blanco', async () => {
+    const { container } = render(<App />);
+    const chat = () => container.querySelector('.chat .mensajes')?.textContent ?? '';
+
+    await waitFor(() => expect(chat()).toContain('Añade la validación de nombres'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva' }));
+
+    const peticion = peticiones.find((p) => p.metodo === 'POST' && p.ruta.endsWith('/conversations'));
+    expect(peticion).toBeDefined();
+
+    // Lo hablado antes desaparece del chat. No se borra: su título sigue en el desplegable.
+    await waitFor(() => expect(chat()).not.toContain('Añade la validación de nombres'));
+    expect(screen.getByLabelText('Conversación').textContent).toContain('Añade la validación');
+  });
+
+  it('con más de una, se puede volver a la anterior', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Nueva' })).toBeDefined());
+
+    // Con una sola conversación no hay a dónde volver, así que no sale el desplegable.
+    expect(screen.queryByLabelText('Conversación')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva' }));
+    const selector = await screen.findByLabelText('Conversación');
+
+    await userEvent.selectOptions(selector, 'cnv_1');
+
+    const peticion = peticiones.find((p) => p.ruta.endsWith('/conversations/cnv_1/open'));
+    expect(peticion).toBeDefined();
   });
 });
 

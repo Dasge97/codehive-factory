@@ -4,6 +4,7 @@ import { EventBus, appendEvent } from './events.js';
 import { agentForRole, currentDecisions, currentRevision, listAgents, recordDecision, requireProject, setProjectGoal } from './projects.js';
 import { blockingFindings, listFindings } from './review.js';
 import { integrableTasks } from './integration.js';
+import { conversacionActual, ponerTituloSiFalta, tocarConversacion } from './conversations.js';
 import { createTask, listTasks, requireTask, setPriority, setStatus } from './tasks.js';
 import { queueForRole, razonDeEspera } from './queue.js';
 import { newId, now } from '../shared/ids.js';
@@ -199,6 +200,14 @@ export interface ProjectSnapshot {
      */
     last_result: string | null;
   }>;
+  /**
+   * Tareas cuyo trabajo ya está en la rama principal.
+   *
+   * Van aparte y solo con su título. Lo que hicieron ya está integrado, así que su resumen
+   * no ayuda a decidir nada y era lo que más ocupaba del encargo en un proyecto con
+   * muchas tareas hechas.
+   */
+  integrated: Array<{ id: string; title: string }>;
   /** Hallazgos abiertos del reviewer, con lo que hace falta para darlos por resueltos. */
   findings: Array<{
     task_id: string;
@@ -220,7 +229,11 @@ export interface ProjectSnapshot {
 export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): ProjectSnapshot {
   const project = requireProject(db, projectId);
 
-  const abiertas = listTasks(db, projectId).filter((t) => t.status !== 'cancelled');
+  const vivas = listTasks(db, projectId).filter((t) => t.status !== 'cancelled');
+
+  // Lo ya integrado se separa: va aparte y sin resumen.
+  const integradas = vivas.filter((t) => t.integrated_at !== null);
+  const abiertas = vivas.filter((t) => t.integrated_at === null);
 
   const tareas = abiertas.map((t) => ({
     id: t.id,
@@ -259,9 +272,16 @@ export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): Proj
     };
   });
 
+  // Solo la conversación abierta. Es lo que hace que empezar una nueva sirva de algo: sin
+  // este filtro, el orquestador seguiría viendo todo lo hablado desde el primer día.
   const chat = (db
-    .prepare('SELECT author, body FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT ?')
-    .all(projectId, chatLimit) as Array<{ author: string; body: string }>).reverse();
+    .prepare(
+      'SELECT author, body FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?',
+    )
+    .all(conversacionActual(db, projectId).id, chatLimit) as Array<{
+    author: string;
+    body: string;
+  }>).reverse();
 
   const aprobaciones = db
     .prepare(
@@ -274,6 +294,7 @@ export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): Proj
   return {
     goal: project.goal,
     mode: project.mode,
+    integrated: integradas.map((t) => ({ id: t.id, title: t.title })),
     findings: hallazgos,
     integrable: integrableTasks(db, projectId).map((t) => ({
       id: t.id,
@@ -339,6 +360,13 @@ export function renderOrchestratorPrompt(snapshot: ProjectSnapshot, mensajeNuevo
               `- [${f.task_id}] ${f.task_title} — ${f.severity}: ${f.title}. Se da por resuelto cuando: ${f.resolution}`,
           )
           .join('\n'),
+    );
+  }
+
+  if (snapshot.integrated.length > 0) {
+    partes.push(
+      '\n## Ya integrado en la rama principal\n' +
+        snapshot.integrated.map((t) => `- [${t.id}] ${t.title}`).join('\n'),
     );
   }
 
@@ -531,10 +559,20 @@ export function postChatMessage(
   body: string,
   taskId: string | null = null,
 ): ChatMessage {
+  // Cada mensaje pertenece a la conversación abierta. El orquestador solo ve esa, así que
+  // empezar una nueva deja fuera lo hablado antes sin borrarlo.
+  const conversacion = conversacionActual(db, projectId);
+
   const id = newId('chatMessage');
   db.prepare(
-    'INSERT INTO chat_messages (id, project_id, author, body, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(id, projectId, author, body, taskId, now());
+    `INSERT INTO chat_messages (id, project_id, conversation_id, author, body, task_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, projectId, conversacion.id, author, body, taskId, now());
+
+  // El título sale del primer mensaje de la persona, que es lo que sirve para reconocer
+  // la conversación en la lista.
+  if (author === 'creator') ponerTituloSiFalta(db, conversacion.id, body);
+  tocarConversacion(db, conversacion.id);
 
   const mensaje = db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(id) as ChatMessage;
 
@@ -548,10 +586,16 @@ export function postChatMessage(
   return mensaje;
 }
 
+/** Los mensajes de la conversación abierta. Las anteriores se piden por su identificador. */
 export function listChat(db: Db, projectId: string, limit = 100): ChatMessage[] {
+  return listChatDeConversacion(db, conversacionActual(db, projectId).id, limit);
+}
+
+/** Los mensajes de una conversación concreta, para poder volver a una anterior. */
+export function listChatDeConversacion(db: Db, conversationId: string, limit = 100): ChatMessage[] {
   return (db
-    .prepare('SELECT * FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT ?')
-    .all(projectId, limit) as ChatMessage[]).reverse();
+    .prepare('SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(conversationId, limit) as ChatMessage[]).reverse();
 }
 
 /** Comprueba que el proyecto tiene un agente orquestador configurado. */

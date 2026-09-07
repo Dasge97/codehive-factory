@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentView, ChatMessage } from '../api';
+import type { AgentView, ChatMessage, ConversationView } from '../api';
 import { hora } from './Estado';
 import { Texto } from './Texto';
 
@@ -30,6 +30,10 @@ interface Props {
   enfocado?: boolean;
   /** Pulsar en cualquier sitio del panel lo pone en primer plano. */
   alEnfocar?: () => void;
+  /** Las conversaciones que ha habido en esta carpeta, de la más reciente a la más vieja. */
+  conversaciones?: ConversationView[];
+  alEmpezarConversacion?: () => void;
+  alAbrirConversacion?: (conversationId: string) => void;
 }
 
 export function Chat({
@@ -45,6 +49,9 @@ export function Chat({
   agente = null,
   enfocado = false,
   alEnfocar,
+  conversaciones = [],
+  alEmpezarConversacion,
+  alAbrirConversacion,
 }: Props) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,15 +100,28 @@ export function Chat({
               <strong>{agente.name}</strong>
               <span className="rol">Orquestación · {agente.engine}</span>
             </div>
-            <span className={`situacion${pensando ? ' trabajando' : ''}`}>
-              {pensando ? 'pensando' : 'te escucha'}
-            </span>
           </>
         ) : (
-          <>
-            <h2>Pídele algo al equipo</h2>
-            <span className="contador">{mensajes.length} mensajes</span>
-          </>
+          <h2>Pídele algo al equipo</h2>
+        )}
+
+        {/*
+          Las conversaciones van fuera de la parte que depende del agente: poder volver a
+          una anterior no tiene nada que ver con que el proyecto tenga registrado su
+          orquestador.
+        */}
+        <Conversaciones
+          conversaciones={conversaciones}
+          alEmpezar={alEmpezarConversacion}
+          alAbrir={alAbrirConversacion}
+        />
+
+        {agente ? (
+          <span className={`situacion${pensando ? ' trabajando' : ''}`}>
+            {pensando ? 'pensando' : 'te escucha'}
+          </span>
+        ) : (
+          <span className="contador">{mensajes.length} mensajes</span>
         )}
       </header>
 
@@ -165,6 +185,56 @@ export function Chat({
         </button>
       </form>
     </section>
+  );
+}
+
+/**
+ * Volver a una conversación anterior de esta carpeta, o empezar una en blanco.
+ *
+ * El orquestador solo ve la conversación abierta. Empezar una nueva no borra nada: la
+ * anterior sigue en la lista y se puede volver a ella. Las tareas y el trabajo del
+ * proyecto no dependen de la conversación, así que no se tocan.
+ */
+function Conversaciones({
+  conversaciones,
+  alEmpezar,
+  alAbrir,
+}: {
+  conversaciones: ConversationView[];
+  alEmpezar?: () => void;
+  alAbrir?: (conversationId: string) => void;
+}) {
+  if (!alEmpezar && !alAbrir) return null;
+
+  const actual = conversaciones.find((c) => c.is_current);
+
+  return (
+    <div className="conversaciones" onMouseDown={(e) => e.stopPropagation()}>
+      {alAbrir && conversaciones.length > 1 && (
+        <select
+          value={actual?.id ?? ''}
+          onChange={(e) => alAbrir(e.target.value)}
+          aria-label="Conversación"
+          title="Volver a una conversación anterior de esta carpeta"
+        >
+          {conversaciones.map((c) => (
+            <option key={c.id} value={c.id}>
+              {(c.title ?? 'Sin empezar') + ` · ${c.messages} mensajes`}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {alEmpezar && (
+        <button
+          className="boton pequeno"
+          onClick={alEmpezar}
+          title="Empezar una conversación en blanco. La de ahora se guarda y puedes volver a ella."
+        >
+          Nueva
+        </button>
+      )}
+    </div>
   );
 }
 

@@ -207,3 +207,47 @@ describe('lo que espera a que el creador lo integre', () => {
     expect(prompt).not.toContain('espera a que el creador lo integre');
   });
 });
+
+describe('lo ya integrado no llena el encargo', () => {
+  /** Marca una tarea como fusionada en la rama principal. */
+  function integrada(tarea: Task): void {
+    db.prepare('UPDATE tasks SET integrated_at = ? WHERE id = ?').run(
+      new Date().toISOString(),
+      tarea.id,
+    );
+  }
+
+  it('de una tarea integrada solo va el título, no lo que dijo el agente', () => {
+    const { tarea } = tareaEjecutada('He anadido la validacion y las pruebas pasan.');
+    integrada(tarea);
+
+    const prompt = renderOrchestratorPrompt(projectSnapshot(db, proyecto.id), 'hola');
+    expect(prompt).toContain('Ya integrado en la rama principal');
+    expect(prompt).toContain(tarea.title);
+    expect(prompt).not.toContain('Dijo el agente');
+  });
+
+  it('y sale de la lista de tareas, que es la que el orquestador tiene que mirar', () => {
+    const { tarea } = tareaEjecutada('Hecho.');
+    integrada(tarea);
+
+    const estado = projectSnapshot(db, proyecto.id);
+    expect(estado.tasks).toHaveLength(0);
+    expect(estado.integrated.map((t) => t.id)).toEqual([tarea.id]);
+  });
+
+  it('una tarea sin integrar sigue contando lo que hizo el agente', () => {
+    tareaEjecutada('He anadido la validacion.');
+
+    const estado = projectSnapshot(db, proyecto.id);
+    expect(estado.tasks).toHaveLength(1);
+    expect(estado.integrated).toHaveLength(0);
+  });
+
+  it('sin nada integrado, el encargo no lleva ese apartado', () => {
+    tareaEjecutada('A medias.');
+
+    const prompt = renderOrchestratorPrompt(projectSnapshot(db, proyecto.id), 'hola');
+    expect(prompt).not.toContain('Ya integrado en la rama principal');
+  });
+});

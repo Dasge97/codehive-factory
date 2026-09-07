@@ -4,6 +4,7 @@ import {
   useEventos,
   type AgentView,
   type ChatMessage,
+  type ConversationView,
   type MotoresDisponibles,
   type ProjectOverview,
   type SystemEvent,
@@ -27,6 +28,7 @@ export function App() {
   const [tareas, setTareas] = useState<Task[]>([]);
   const [agentes, setAgentes] = useState<AgentView[]>([]);
   const [mensajes, setMensajes] = useState<ChatMessage[]>([]);
+  const [conversaciones, setConversaciones] = useState<ConversationView[]>([]);
   const [eventos, setEventos] = useState<SystemEvent[]>([]);
   const [detalle, setDetalle] = useState<TaskDetail | null>(null);
   const [motores, setMotores] = useState<MotoresDisponibles | null>(null);
@@ -69,19 +71,21 @@ export function App() {
   const recargarTodo = useCallback(async () => {
     if (!projectId) return;
     try {
-      const [r, t, a, c, ev] = await Promise.all([
+      const [r, t, a, c, ev, cv] = await Promise.all([
         api.proyecto(projectId),
         api.tareas(projectId),
         api.agentes(projectId),
         api.chat(projectId),
         // Los pasos de cada agente salen de aquí, así que hace falta bastante historial.
         api.actividad(projectId, 200),
+        api.conversaciones(projectId),
       ]);
       setResumen(r);
       setTareas(t);
       setAgentes(a);
       setMensajes(c);
       setEventos(ev);
+      setConversaciones(cv);
       setError(null);
       if (!r.orchestrator_busy) setParadaPedida(false);
     } catch (e) {
@@ -164,6 +168,26 @@ export function App() {
     if (!projectId) return;
     await api.enviarMensaje(projectId, texto);
     setMensajes(await api.chat(projectId));
+    // El primer mensaje pone título a la conversación, así que la lista cambia.
+    setConversaciones(await api.conversaciones(projectId));
+  }
+
+  /**
+   * Cambia de conversación, o empieza una en blanco.
+   *
+   * El orquestador solo ve la conversación abierta. Lo hablado antes no se borra: sigue en
+   * la lista y se puede volver a ello.
+   */
+  async function cambiarDeConversacion(accion: () => Promise<unknown>) {
+    if (!projectId) return;
+    try {
+      await accion();
+      setMensajes(await api.chat(projectId));
+      setConversaciones(await api.conversaciones(projectId));
+      setBorrador('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   // -------------------------------------------------------------- derivados
@@ -309,6 +333,13 @@ export function App() {
           agente={orquestador ?? null}
           enfocado={foco === idDelChat}
           alEnfocar={() => setFoco(idDelChat)}
+          conversaciones={conversaciones}
+          alEmpezarConversacion={() =>
+            void cambiarDeConversacion(() => api.nuevaConversacion(resumen.project.id))
+          }
+          alAbrirConversacion={(id) =>
+            void cambiarDeConversacion(() => api.abrirConversacion(resumen.project.id, id))
+          }
           alParar={() => {
             setParadaPedida(true);
             void api.pararOrquestador(resumen.project.id).catch(() => setParadaPedida(false));
@@ -399,6 +430,7 @@ export function App() {
             setAgentes([]);
             setMensajes([]);
             setEventos([]);
+            setConversaciones([]);
             setFoco(null);
             setProjectId(proyecto.id);
           }}

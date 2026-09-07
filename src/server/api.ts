@@ -5,7 +5,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 import type { Db } from '../core/db.js';
 import { EventBus, listEvents, listRecentEvents } from '../core/events.js';
 import { integrableTasks, integrateTask } from '../core/integration.js';
-import { listChat, postChatMessage, projectSnapshot } from '../core/orchestrator.js';
+import { listChat, listChatDeConversacion, postChatMessage, projectSnapshot } from '../core/orchestrator.js';
+import { abrirConversacion, listarConversaciones, nuevaConversacion } from '../core/conversations.js';
 import {
   listAgents,
   listProjects,
@@ -288,7 +289,23 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
   });
 
   app.get('/api/projects/:id/chat', (req, res) => {
-    res.json(listChat(db, req.params.id));
+    // Con `conversation` se pide una conversación concreta; sin él, la que está abierta.
+    const pedida = String(req.query['conversation'] ?? '').trim();
+    res.json(pedida ? listChatDeConversacion(db, pedida) : listChat(db, req.params.id));
+  });
+
+  app.get('/api/projects/:id/conversations', (req, res) => {
+    res.json(listarConversaciones(db, req.params.id));
+  });
+
+  app.post('/api/projects/:id/conversations', (req, res) => {
+    // Una conversación en blanco. El orquestador solo ve la abierta, así que a partir de
+    // aquí deja de tener delante lo hablado antes. Las tareas y el trabajo no se tocan.
+    res.status(201).json(nuevaConversacion(db, param(req, 'id')));
+  });
+
+  app.post('/api/projects/:id/conversations/:conversationId/open', (req, res) => {
+    res.json(abrirConversacion(db, param(req, 'id'), param(req, 'conversationId')));
   });
 
   app.post('/api/projects/:id/chat', (req, res) => {

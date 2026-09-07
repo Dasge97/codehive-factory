@@ -130,6 +130,23 @@ export interface EngineUsage {
   updated_at: string;
 }
 
+/**
+ * Una conversación con el orquestador.
+ *
+ * Un proyecto tiene varias y solo una abierta. El orquestador solo ve la abierta, así que
+ * empezar una nueva deja fuera lo hablado antes sin borrarlo.
+ */
+export interface ConversationView {
+  id: string;
+  project_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: number;
+  last_message_at: string | null;
+  is_current: number;
+}
+
 export interface ChatMessage {
   id: string;
   author: string;
@@ -319,6 +336,16 @@ export const api = {
     pedir<{ use_personal_config: number }>(`/projects/${id}/personal-config`, {
       method: 'POST',
       body: JSON.stringify({ use_personal_config: usar }),
+    }),
+
+  conversaciones: (id: string) => pedir<ConversationView[]>(`/projects/${id}/conversations`),
+
+  nuevaConversacion: (id: string) =>
+    pedir<ConversationView>(`/projects/${id}/conversations`, { method: 'POST' }),
+
+  abrirConversacion: (id: string, conversationId: string) =>
+    pedir<ConversationView>(`/projects/${id}/conversations/${conversationId}/open`, {
+      method: 'POST',
     }),
 
   turnosDelOrquestador: (id: string) =>

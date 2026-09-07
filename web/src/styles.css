@@ -1833,3 +1833,25 @@ details > summary {
   border-radius: 3px;
   padding: 0 4px;
 }
+
+/*
+ * Volver a una conversación anterior con el orquestador, o empezar una en blanco. Va en la
+ * cabecera de su panel, que es donde se lee lo que ya se ha hablado.
+ */
+.conversaciones {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.conversaciones select {
+  font: inherit;
+  font-size: 11.5px;
+  max-width: 22ch;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-pequeno);
+  background: var(--superficie);
+  color: var(--texto-suave);
+  padding: 1px 4px;
+}

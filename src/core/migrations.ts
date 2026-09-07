@@ -441,4 +441,45 @@ CREATE TABLE orchestrator_turns (
 CREATE INDEX idx_orchestrator_turns ON orchestrator_turns(project_id, started_at);
 `,
   },
+
+  {
+    version: 6,
+    name: 'conversaciones y marca de integración',
+    sql: `
+-- Cuándo se fusionó el trabajo de esta tarea en la rama principal.
+--
+-- Hasta ahora la integración solo dejaba un evento. Con la marca en la tarea, el encargo
+-- del orquestador puede dejar de mandarle el resumen de lo que ya está integrado, que es
+-- lo que más ocupa cuando el proyecto lleva muchas tareas hechas.
+ALTER TABLE tasks ADD COLUMN integrated_at TEXT;
+
+-- Una conversación con el orquestador. Un proyecto tiene varias a lo largo del tiempo, y
+-- solo una abierta. El orquestador solo ve la abierta: es lo que hace que empezar una
+-- conversación nueva sirva de algo.
+CREATE TABLE conversations (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title      TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_conversations_project ON conversations(project_id, created_at);
+
+ALTER TABLE chat_messages ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE;
+ALTER TABLE projects ADD COLUMN current_conversation_id TEXT;
+
+-- Lo que ya estaba escrito pasa a ser la primera conversación de cada proyecto. El
+-- identificador se compone del identificador del proyecto para que salga único sin tener
+-- que generarlo desde el código.
+INSERT INTO conversations (id, project_id, title, created_at, updated_at)
+SELECT 'cnv_inicial_' || p.id, p.id, 'Primera conversación', p.created_at, p.updated_at
+FROM projects p;
+
+UPDATE chat_messages SET conversation_id = 'cnv_inicial_' || project_id WHERE conversation_id IS NULL;
+UPDATE projects SET current_conversation_id = 'cnv_inicial_' || id;
+
+CREATE INDEX idx_chat_conversation ON chat_messages(conversation_id, created_at);
+`,
+  },
 ];

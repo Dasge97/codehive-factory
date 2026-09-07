@@ -7,6 +7,7 @@ import { openFindings, readyToIntegrate } from './review.js';
 import { RuleError, addNotice, requireTask, setStatus } from './tasks.js';
 import { mergeBranch, removeWorktree, resolveCommit, undoLastMerge } from '../workers/git.js';
 import { createTask } from './tasks.js';
+import { now } from '../shared/ids.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -150,6 +151,14 @@ async function finalizarIntegracion(
   db.prepare(
     "UPDATE resource_locks SET released_at = datetime('now') WHERE task_id = ? AND released_at IS NULL",
   ).run(taskId);
+
+  // Queda marcada como integrada. El encargo del orquestador deja de mandarle el resumen
+  // de una tarea ya fusionada: lo que hizo ya está en la rama principal.
+  db.prepare('UPDATE tasks SET integrated_at = ?, updated_at = ? WHERE id = ?').run(
+    now(),
+    now(),
+    taskId,
+  );
 
   appendEvent(db, bus, {
     project_id: task.project_id,

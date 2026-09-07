@@ -138,6 +138,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** Cuándo se fusionó su trabajo en la rama principal, o null si todavía no. */
+  integrated_at: string | null;
 }
 
 export interface Run {
