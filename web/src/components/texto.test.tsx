@@ -87,6 +87,23 @@ describe('color de cada agente', () => {
     }
   });
 
+  it('el recorte junta los espacios, sin comerse las letras', () => {
+    const pasos = pasosPorAgente([
+      {
+        id: 1,
+        project_id: 'prj_1',
+        type: 'run.progress',
+        task_id: 'tsk_1',
+        run_id: 'run_1',
+        agent_id: 'agt_1',
+        payload: JSON.stringify({ text: 'casos  sueltos\n  con espacios' }),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    expect(pasos.get('agt_1')![0]!.texto).toBe('casos sueltos con espacios');
+  });
+
   it('el resumen final de una ejecución se recorta al panel', () => {
     const pasos = pasosPorAgente([
       {

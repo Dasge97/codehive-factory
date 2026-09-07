@@ -9,7 +9,7 @@ import { hora } from './Estado';
  * la tarea; aquí basta con saber qué hizo.
  */
 function recortar(texto: string, maximo: number): string {
-  const limpio = texto.replace(/s+/g, ' ').trim();
+  const limpio = texto.replace(/\s+/g, ' ').trim();
   if (limpio.length <= maximo) return limpio;
 
   const corte = limpio.lastIndexOf(' ', maximo);
