@@ -82,6 +82,10 @@ export interface Project {
   run_timeout_ms: number;
   status: 'active' | 'paused' | 'archived';
   mode: ProjectMode;
+  /** Patrones de ruta que ningún agente puede modificar, guardados como JSON. */
+  protected_paths: string;
+  /** 1 si los motores se lanzan con la configuración personal de quien arranca el sistema. */
+  use_personal_config: number;
   created_at: string;
   updated_at: string;
 }
@@ -388,6 +392,8 @@ export interface Assignment {
   decisions: Array<Pick<Decision, 'title' | 'body' | 'revision'>>;
   dependencies: Array<{ id: string; title: string; status: TaskStatus; result: string | null }>;
   locks: string[];
+  /** Patrones de ruta que el proyecto no deja tocar a nadie. */
+  protected_paths: string[];
   findings: Array<Pick<Finding, 'id' | 'severity' | 'title' | 'detail' | 'resolution'>>;
   team: Array<{ agent_id: string; name: string; role: AgentRole; available: boolean }>;
   notices: Array<{ from: string; body: string }>;

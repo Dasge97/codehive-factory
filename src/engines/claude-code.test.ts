@@ -20,6 +20,21 @@ describe('argumentos de la línea de órdenes', () => {
     expect(args.join(' ')).toContain('--permission-prompts none');
   });
 
+  it('por omisión aísla al agente de la configuración personal del equipo', () => {
+    const args = motor.buildArgs(peticionBase);
+    expect(args).toContain('--safe-mode');
+    expect(args).toContain('--setting-sources');
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
+    expect(args).toContain('--strict-mcp-config');
+  });
+
+  it('con la configuración personal activada no pasa ninguna de las tres opciones', () => {
+    const args = motor.buildArgs({ ...peticionBase, usePersonalConfig: true });
+    expect(args).not.toContain('--safe-mode');
+    expect(args).not.toContain('--setting-sources');
+    expect(args).not.toContain('--strict-mcp-config');
+  });
+
   it('pasa las herramientas separadas por comas', () => {
     const args = motor.buildArgs(peticionBase);
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Write');

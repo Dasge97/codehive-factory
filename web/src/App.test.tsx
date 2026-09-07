@@ -15,6 +15,7 @@ let autorizaciones: Array<Record<string, unknown>>;
 let consumo: Array<Record<string, unknown>>;
 let estadoProyecto: string;
 let modoProyecto: 'normal' | 'strict';
+let agenteDesactivado: boolean;
 let motoresInstalados: Array<Record<string, unknown>>;
 let motoresAusentes: Array<Record<string, unknown>>;
 let orquestadorTrabajando: boolean;
@@ -82,7 +83,7 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
       },
       {
         id: 'agt_2', name: 'Reviewer', role: 'reviewer', engine: 'codex', model: null,
-        allowed_tools: ['Read'], max_workers: 1, enabled: 1, busy_workers: 0,
+        allowed_tools: ['Read'], max_workers: 1, enabled: agenteDesactivado ? 0 : 1, busy_workers: 0,
         current_tasks: [], queue_length: 0,
       },
     ]);
@@ -168,6 +169,7 @@ beforeEach(() => {
   consumo = [];
   estadoProyecto = 'active';
   modoProyecto = 'normal';
+  agenteDesactivado = false;
   motoresInstalados = [
     {
       name: 'claude_code',
@@ -271,9 +273,11 @@ describe('pantalla principal', () => {
       expect(screen.getByRole('heading', { name: 'Code Hive Factory', level: 1 })).toBeDefined(),
     );
 
-    // Sin esto, no se sabe dónde va a hacer el equipo lo que le pidas.
-    expect(screen.getByText('/proyecto')).toBeDefined();
-    expect(screen.getByText('rama main')).toBeDefined();
+    // Sin esto, no se sabe dónde va a hacer el equipo lo que le pidas. La ruta se ve
+    // acortada para que quepa en una línea, y entera al pasar el ratón.
+    const ruta = screen.getByText('proyecto');
+    expect(ruta.getAttribute('title')).toContain('/proyecto');
+    expect(screen.getByText('main')).toBeDefined();
   });
 
   it('cada agente tiene su panel, con su rol y su motor', async () => {
@@ -284,6 +288,42 @@ describe('pantalla principal', () => {
     expect(screen.getByText(/Revisión · codex/)).toBeDefined();
   });
 
+});
+
+describe('estado del equipo en la cabecera', () => {
+  it('hay un punto por agente y dice en qué está cada uno', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
+
+    const puntos = Array.from(container.querySelectorAll('.punto-agente'));
+    expect(puntos).toHaveLength(2);
+
+    // El builder tiene un worker ocupado y el reviewer ninguno.
+    expect(puntos[0]!.getAttribute('data-estado')).toBe('trabajando');
+    expect(puntos[0]!.getAttribute('title')).toContain('Builder');
+    expect(puntos[1]!.getAttribute('data-estado')).toBe('libre');
+  });
+
+  it('un agente desactivado no cuenta como que está esperando', async () => {
+    agenteDesactivado = true;
+
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Reviewer')).toBeDefined());
+
+    const puntos = Array.from(container.querySelectorAll('.punto-agente'));
+    expect(puntos[1]!.getAttribute('data-estado')).toBe('apagado');
+  });
+
+  it('con el proyecto en pausa, ningún agente está esperando su turno', async () => {
+    estadoProyecto = 'paused';
+
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Reviewer')).toBeDefined());
+
+    expect(container.querySelector('.chip-pausa')).not.toBeNull();
+    const puntos = Array.from(container.querySelectorAll('.punto-agente'));
+    expect(puntos[1]!.getAttribute('data-estado')).toBe('pausa');
+  });
 });
 
 describe('modo de trabajo', () => {
@@ -390,7 +430,25 @@ describe('consumo de la suscripción', () => {
     ];
 
     render(<App />);
-    await waitFor(() => expect(screen.getByText('Cuota 42%')).toBeDefined());
+    // Dice de qué motor es la cuota: Codex no informa de la suya, así que una cifra sin
+    // dueño se leería como la del sistema entero.
+    await waitFor(() => expect(screen.getByText('Claude 42%')).toBeDefined());
+  });
+
+  it('dice cuándo se midió la cuota, porque solo se actualiza al ejecutar', async () => {
+    consumo = [
+      {
+        engine: 'claude_code', status: 'allowed', five_hour_util: 0.42,
+        five_hour_resets: new Date().toISOString(), seven_day_util: 0.1,
+        seven_day_resets: new Date().toISOString(), using_overage: 0,
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Claude 42%')).toBeDefined());
+
+    expect(container.querySelector('.consumo')?.getAttribute('title')).toMatch(/Medido a las/);
   });
 
   it('sin cuota lo dice y explica que el trabajo está en pausa', async () => {

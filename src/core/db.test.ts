@@ -108,9 +108,20 @@ describe('la migración que amplía los roles conserva los datos', () => {
     return db;
   }
 
+  it('los proyectos que ya existían quedan aislados y sin ficheros protegidos', () => {
+    const db = baseAnterior();
+    applyMigrations(db);
+
+    const proyecto = db.prepare('SELECT * FROM projects WHERE id = ?').get('prj_1') as Record<string, unknown>;
+    expect(proyecto['protected_paths']).toBe('[]');
+    // Aislado por omisión: un proyecto que ya existía no debe empezar a heredar la
+    // configuración personal de quien arranque el sistema sin que nadie lo haya pedido.
+    expect(proyecto['use_personal_config']).toBe(0);
+  });
+
   it('deja intactas las tareas, las ejecuciones y los bloqueos', () => {
     const db = baseAnterior();
-    expect(applyMigrations(db)).toEqual([3]);
+    expect(applyMigrations(db)).toEqual([3, 4]);
 
     const cuenta = (tabla: string) =>
       (db.prepare(`SELECT COUNT(*) AS n FROM ${tabla}`).get() as { n: number }).n;

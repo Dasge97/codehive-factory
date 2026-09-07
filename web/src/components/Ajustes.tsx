@@ -23,6 +23,7 @@ export function Ajustes({ resumen, agentes, motores, alCerrar, alRecargar }: Pro
 
   const disponibles = motores?.available.map((m) => m.name) ?? [];
   const enPausa = resumen.project.status === 'paused';
+  const aislado = resumen.project.use_personal_config !== 1;
 
   async function accion(fn: () => Promise<unknown>, exito: string) {
     setTrabajando(true);
@@ -73,6 +74,46 @@ export function Ajustes({ resumen, agentes, motores, alCerrar, alRecargar }: Pro
             >
               {enPausa ? 'Reanudar el proyecto' : 'Pausar el proyecto'}
             </button>
+          </div>
+
+          <div className="bloque">
+            <h3>Configuración de los motores</h3>
+            <p style={{ fontSize: 12.5, color: 'var(--texto-suave)' }}>
+              Los motores se pueden lanzar aislados o con la configuración personal de quien
+              arranca el sistema: su CLAUDE.md, sus hooks, sus ficheros de ajustes y sus
+              servidores MCP. Aislados, el proyecto se comporta igual en cualquier equipo.
+            </p>
+
+            <div className="modo" role="group" aria-label="Configuración de los motores">
+              <button
+                className={`boton pequeno${aislado ? ' activo' : ''}`}
+                aria-pressed={aislado}
+                disabled={trabajando}
+                onClick={() =>
+                  void accion(
+                    () => api.cambiarConfiguracionPersonal(resumen.project.id, false),
+                    'Los motores se lanzarán aislados a partir de la siguiente ejecución.',
+                  )
+                }
+                title="Los agentes no ven tu CLAUDE.md, tus hooks, tus ajustes ni tus servidores MCP."
+              >
+                Aislada
+              </button>
+              <button
+                className={`boton pequeno${aislado ? '' : ' activo'}`}
+                aria-pressed={!aislado}
+                disabled={trabajando}
+                onClick={() =>
+                  void accion(
+                    () => api.cambiarConfiguracionPersonal(resumen.project.id, true),
+                    'Los motores usarán tu configuración personal a partir de la siguiente ejecución.',
+                  )
+                }
+                title="Los agentes heredan tu CLAUDE.md, tus hooks, tus ajustes y tus servidores MCP."
+              >
+                La mía
+              </button>
+            </div>
           </div>
 
           <div className="bloque">

@@ -1,5 +1,5 @@
 import type { Db } from './db.js';
-import { currentDecisions, requireProject } from './projects.js';
+import { currentDecisions, protectedPaths, requireProject } from './projects.js';
 import { pendingNotices, requireTask, taskPathPatterns } from './tasks.js';
 import { pendingForAgent, teamDirectory } from './agent-messages.js';
 import type { Assignment, Finding, Run, Task } from '../shared/types.js';
@@ -70,6 +70,7 @@ export function buildAssignment(db: Db, taskId: string): Assignment {
     })),
     dependencies,
     locks: taskPathPatterns(db, taskId),
+    protected_paths: protectedPaths(project),
     findings: findingsForTask(db, task),
     team: equipo,
     notices: [
@@ -171,6 +172,21 @@ export function renderAssignment(assignment: Assignment): string {
           assignment.locks.map((l) => `- ${l}`).join('\n'),
           '',
           'Si necesitas tocar algo fuera de esta lista, termina con outcome igual a blocked y explica qué fichero y por qué.',
+        ].join('\n'),
+      ),
+    );
+  }
+
+  if (assignment.protected_paths.length > 0) {
+    partes.push(
+      seccion(
+        'Ficheros protegidos del proyecto',
+        [
+          assignment.protected_paths.map((p) => `- ${p}`).join('\n'),
+          '',
+          'No los modifiques bajo ningún concepto, ni siquiera si tu tarea parece pedirlo.',
+          'El sistema comprueba los ficheros de tu commit: si tocas alguno de estos, tu trabajo no se publica y la tarea queda bloqueada.',
+          'Si crees que el trabajo no se puede hacer sin tocarlos, termina con outcome igual a blocked y explica cuál y por qué.',
         ].join('\n'),
       ),
     );

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, type Db } from '../core/db.js';
 import { EventBus, listEvents } from '../core/events.js';
-import { createAgent, createProject } from '../core/projects.js';
+import { createAgent, createProject, updateProject } from '../core/projects.js';
 import { createTask, requireTask, setStatus } from '../core/tasks.js';
 import { claimTask } from '../core/queue.js';
 import { listIncrements } from '../core/review.js';
@@ -519,5 +519,152 @@ describe('la revisión se cierra al dar su veredicto', () => {
 
     expect(requireTask(db, revision.id).status).toBe('done');
     expect(requireTask(db, build.id).status).toBe('done');
+  });
+});
+
+describe('la verificación la ejecuta el sistema, no el agente', () => {
+  /** Motor que hace un commit en el worktree y declara la verificación que se le indique. */
+  function motorQueComitea(verification: unknown) {
+    return new MotorSimulado({ resultText: resultadoCompleto({ verification }) }, async (req) => {
+      writeFileSync(join(req.cwd, 'nuevo.txt'), 'trabajo del agente\n');
+      await git(req.cwd, ['add', '-A']);
+      await git(req.cwd, ['-c', 'user.email=a@b.c', '-c', 'user.name=Agente', 'commit', '-q', '-m', 'incremento']);
+    });
+  }
+
+  function revisionDe(taskId: string) {
+    return db
+      .prepare("SELECT * FROM tasks WHERE parent_task_id = ? AND kind = 'review'")
+      .get(taskId) as Task | undefined;
+  }
+
+  it('si el agente dice que la verificación pasa y no pasa, el trabajo se revisa igual', async () => {
+    updateProject(db, proyecto.id, { verify_command: 'node --opcion-que-no-existe' });
+    const t = tareaLista({ needs_review: false });
+
+    await ejecutar(t, motorQueComitea({ ran: true, command: 'npm test', passed: true }));
+
+    expect(revisionDe(t.id)).toBeDefined();
+    expect(requireTask(db, t.id).status).toBe('in_review');
+  });
+
+  it('deja un aviso para el siguiente intento cuando el agente declaró algo que no era cierto', async () => {
+    updateProject(db, proyecto.id, { verify_command: 'node --opcion-que-no-existe' });
+    const t = tareaLista({ needs_review: false });
+
+    await ejecutar(t, motorQueComitea({ ran: true, command: 'npm test', passed: true }));
+
+    const avisos = db.prepare('SELECT * FROM notices WHERE task_id = ?').all(t.id) as Array<{ body: string }>;
+    expect(avisos.some((a) => a.body.includes('no pasa'))).toBe(true);
+  });
+
+  it('si el agente no la ejecutó pero el sistema la ejecuta y pasa, la tarea queda hecha', async () => {
+    updateProject(db, proyecto.id, { verify_command: 'node --version' });
+    const t = tareaLista({ needs_review: false });
+
+    await ejecutar(t, motorQueComitea({ ran: false, command: null, passed: null }));
+
+    expect(revisionDe(t.id)).toBeUndefined();
+    expect(requireTask(db, t.id).status).toBe('done');
+  });
+
+  it('el resultado que devuelve el worker lleva la verificación medida, no la declarada', async () => {
+    updateProject(db, proyecto.id, { verify_command: 'node --version' });
+    const t = tareaLista();
+
+    const r = await ejecutar(t, motorQueComitea({ ran: true, command: 'npm test', passed: false }));
+
+    expect(r.result!.verification).toMatchObject({ ran: true, command: 'node --version', passed: true });
+  });
+
+  it('una tarea que no escribe código no ejecuta la verificación', async () => {
+    updateProject(db, proyecto.id, { verify_command: 'node --opcion-que-no-existe' });
+    const t = tareaLista({ kind: 'research', required_role: 'builder' });
+
+    const motor = new MotorSimulado({
+      resultText: resultadoCompleto({ verification: { ran: true, command: 'npm test', passed: true } }),
+    });
+    const r = await ejecutar(t, motor);
+
+    expect(r.result!.verification).toMatchObject({ command: 'npm test', passed: true });
+  });
+});
+
+describe('ficheros protegidos del proyecto', () => {
+  /** Motor que escribe el fichero que se le indique y lo comitea. */
+  function motorQueTocaFichero(nombre: string) {
+    return new MotorSimulado({ resultText: resultadoCompleto() }, async (req) => {
+      writeFileSync(join(req.cwd, nombre), 'contenido\n');
+      await git(req.cwd, ['add', '-A']);
+      await git(req.cwd, ['-c', 'user.email=a@b.c', '-c', 'user.name=Agente', 'commit', '-q', '-m', 'cambio']);
+    });
+  }
+
+  it('el encargo le dice al agente qué ficheros no puede tocar', async () => {
+    updateProject(db, proyecto.id, { protected_paths: JSON.stringify(['package-lock.json']) });
+    const t = tareaLista();
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() });
+    await ejecutar(t, motor);
+
+    expect(motor.peticiones[0]!.prompt).toContain('Ficheros protegidos del proyecto');
+    expect(motor.peticiones[0]!.prompt).toContain('package-lock.json');
+  });
+
+  it('un commit que toca un fichero protegido no se publica y bloquea la tarea', async () => {
+    updateProject(db, proyecto.id, { protected_paths: JSON.stringify(['package-lock.json']) });
+    const t = tareaLista();
+
+    const r = await ejecutar(t, motorQueTocaFichero('package-lock.json'));
+
+    expect(r.incrementId).toBeNull();
+    expect(listIncrements(db, t.id)).toHaveLength(0);
+
+    const actualizada = requireTask(db, t.id);
+    expect(actualizada.status).toBe('blocked');
+    expect(actualizada.blocked_reason).toContain('package-lock.json');
+    expect(actualizada.head_commit).toBeNull();
+  });
+
+  it('el agente recibe el motivo en su siguiente intento', async () => {
+    updateProject(db, proyecto.id, { protected_paths: JSON.stringify(['package-lock.json']) });
+    const t = tareaLista();
+
+    await ejecutar(t, motorQueTocaFichero('package-lock.json'));
+
+    const avisos = db.prepare('SELECT * FROM notices WHERE task_id = ?').all(t.id) as Array<{ body: string }>;
+    expect(avisos.some((a) => a.body.includes('package-lock.json'))).toBe(true);
+  });
+
+  it('un fichero que no cae en ningún patrón protegido se publica sin problema', async () => {
+    updateProject(db, proyecto.id, { protected_paths: JSON.stringify(['.github/**']) });
+    const t = tareaLista();
+
+    const r = await ejecutar(t, motorQueTocaFichero('package-lock.json'));
+
+    expect(r.incrementId).not.toBeNull();
+    expect(requireTask(db, t.id).status).toBe('in_review');
+  });
+
+  it('sin ficheros protegidos declarados, el trabajo se publica como siempre', async () => {
+    const t = tareaLista();
+    const r = await ejecutar(t, motorQueTocaFichero('package-lock.json'));
+    expect(r.incrementId).not.toBeNull();
+  });
+});
+
+describe('aislamiento de la configuración personal', () => {
+  it('por omisión el motor no recibe la configuración personal del equipo', async () => {
+    const t = tareaLista();
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() });
+    await ejecutar(t, motor);
+    expect(motor.peticiones[0]!.usePersonalConfig).toBe(false);
+  });
+
+  it('con el interruptor activado, el motor la recibe', async () => {
+    updateProject(db, proyecto.id, { use_personal_config: 1 });
+    const t = tareaLista();
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() });
+    await ejecutar(t, motor);
+    expect(motor.peticiones[0]!.usePersonalConfig).toBe(true);
   });
 });

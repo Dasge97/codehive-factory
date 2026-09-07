@@ -629,65 +629,147 @@ button {
 /* Cabecera                                                            */
 /* ------------------------------------------------------------------ */
 
+/*
+ * La cabecera va en una sola línea. Todo lo que ocupa aquí se lo quita a los paneles de
+ * los agentes, que es donde de verdad pasa algo.
+ */
 .cabecera {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 5px 14px;
+  min-height: 40px;
   background: var(--superficie);
   border-bottom: 1px solid var(--borde);
-  flex-wrap: wrap;
 }
 
+/* Nombre, carpeta y rama, en fila. El nombre no se encoge; la ruta cede sitio si falta. */
 .cabecera .identidad {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
 
 .cabecera h1 {
   margin: 0;
-  font-size: 17px;
+  font-size: 14.5px;
   font-weight: 680;
   letter-spacing: -0.015em;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 /*
  * Dónde trabaja el equipo. Es lo primero que hay que saber antes de pedir nada, así que
- * está siempre a la vista y no dentro de un panel de ajustes.
+ * está siempre a la vista y no dentro de un panel de ajustes. Se pulsa para cambiar de
+ * carpeta.
  */
-.cabecera .ubicacion {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  color: var(--texto-suave);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.cabecera .ubicacion .ruta {
+.cabecera .ruta {
   font-family: var(--fuente-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   background: var(--superficie-2);
   border: 1px solid var(--borde);
   border-radius: var(--radio-pequeno);
   padding: 1px 6px;
-  color: var(--texto);
-  max-width: 46ch;
+  color: var(--texto-suave);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.cabecera .ubicacion .separador {
+.cabecera .ruta:hover {
+  border-color: var(--acento);
+  color: var(--acento-texto);
+}
+
+.cabecera .rama {
+  font-size: 11.5px;
   color: var(--texto-tenue);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.cabecera .rama::before {
+  content: '⌥ ';
+}
+
+.cabecera .chip-pausa {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--blocked);
+  background: var(--blocked-fondo);
+  border-radius: var(--radio-pequeno);
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+/*
+ * El equipo, un punto por agente. Sustituye a la frase de cuántos agentes trabajan: ocupa
+ * mucho menos y dice quién trabaja, no solo cuántos.
+ */
+.equipo-puntos {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.punto-agente {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--borde-fuerte);
+  background: transparent;
+}
+
+.punto-agente[data-rol='orquestador'] { border-color: var(--rol-orquestador); }
+.punto-agente[data-rol='builder'] { border-color: var(--rol-builder); }
+.punto-agente[data-rol='reviewer'] { border-color: var(--rol-reviewer); }
+.punto-agente[data-rol='investigador'] { border-color: var(--rol-investigador); }
+.punto-agente[data-rol='refactorer'] { border-color: var(--rol-refactorer); }
+
+.punto-agente[data-estado='trabajando'][data-rol='orquestador'] { background: var(--rol-orquestador); }
+.punto-agente[data-estado='trabajando'][data-rol='builder'] { background: var(--rol-builder); }
+.punto-agente[data-estado='trabajando'][data-rol='reviewer'] { background: var(--rol-reviewer); }
+.punto-agente[data-estado='trabajando'][data-rol='investigador'] { background: var(--rol-investigador); }
+.punto-agente[data-estado='trabajando'][data-rol='refactorer'] { background: var(--rol-refactorer); }
+
+.punto-agente[data-estado='trabajando'] {
+  animation: latir 1.6s ease-in-out infinite;
+}
+
+/* Un agente desactivado, o parado por la pausa del proyecto, pierde su color. */
+.punto-agente[data-estado='apagado'],
+.punto-agente[data-estado='pausa'] {
+  border-color: var(--borde-fuerte);
+  background: transparent;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .punto-agente[data-estado='trabajando'] {
+    animation: none;
+  }
 }
 
 .cabecera-acciones {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* El tema se pulsa una vez al mes: con un icono basta y ahorra 100 píxeles de ancho. */
+.boton-tema {
+  width: 28px;
+  padding: 3px 0;
+  text-align: center;
+  font-size: 13px;
 }
 
 .consumo {
@@ -1403,8 +1485,26 @@ details > summary {
     border-left: 0;
   }
 
-  .cabecera .ubicacion .ruta {
-    max-width: 100%;
+  /*
+   * En pantalla estrecha la cabecera se parte en dos filas y los puntos del equipo se
+   * quitan: ahí el sitio hace más falta para la ruta y los botones.
+   */
+  .cabecera {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+
+  .cabecera .equipo-puntos {
+    display: none;
+  }
+
+  .cabecera .identidad {
+    flex: 1 1 100%;
+  }
+
+  .cabecera-acciones {
+    margin-left: 0;
+    flex-wrap: wrap;
   }
 }
 
@@ -1581,4 +1681,75 @@ details > summary {
 
 .paso-agente .texto-formateado strong {
   color: var(--texto);
+}
+
+/* ------------------------------------------------------------------ */
+/* Abrir carpeta                                                       */
+/* ------------------------------------------------------------------ */
+
+.detalle .acciones {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lista-carpetas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+.lista-carpetas .carpeta {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radio-pequeno);
+  padding: 4px 7px;
+  color: var(--texto);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lista-carpetas .carpeta:hover:not(:disabled) {
+  background: var(--superficie-2);
+  border-color: var(--borde);
+}
+
+.lista-carpetas .carpeta:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lista-carpetas .carpeta .nombre {
+  flex: 0 0 auto;
+}
+
+/* La ruta completa se lee entera si cabe, y se recorta por el final si no. */
+.lista-carpetas .carpeta .commit {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--texto-tenue);
+}
+
+.lista-carpetas .carpeta .etiqueta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--acento);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-pequeno);
+  padding: 0 5px;
 }

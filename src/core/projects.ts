@@ -1,5 +1,6 @@
 import type { Db } from './db.js';
 import { newId, now } from '../shared/ids.js';
+import { ROLE_DEFAULTS, modeloPara } from './roles.js';
 import type { Agent, AgentRole, Decision, EngineName, Project, ProjectMode } from '../shared/types.js';
 
 export interface CreateProjectInput {
@@ -12,6 +13,8 @@ export interface CreateProjectInput {
   max_concurrent_runs?: number;
   max_task_attempts?: number;
   run_timeout_ms?: number;
+  protected_paths?: string[];
+  use_personal_config?: boolean;
 }
 
 export function createProject(db: Db, input: CreateProjectInput): Project {
@@ -20,8 +23,9 @@ export function createProject(db: Db, input: CreateProjectInput): Project {
   db.prepare(
     `INSERT INTO projects (
        id, name, repo_path, main_branch, goal, verify_command, install_command,
-       max_concurrent_runs, max_task_attempts, run_timeout_ms, status, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+       max_concurrent_runs, max_task_attempts, run_timeout_ms, protected_paths,
+       use_personal_config, status, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
   ).run(
     id,
     input.name,
@@ -33,6 +37,8 @@ export function createProject(db: Db, input: CreateProjectInput): Project {
     input.max_concurrent_runs ?? 4,
     input.max_task_attempts ?? 3,
     input.run_timeout_ms ?? 900_000,
+    JSON.stringify(input.protected_paths ?? []),
+    input.use_personal_config ? 1 : 0,
     momento,
     momento,
   );
@@ -51,6 +57,22 @@ export function requireProject(db: Db, id: string): Project {
 
 export function listProjects(db: Db): Project[] {
   return db.prepare("SELECT * FROM projects WHERE status <> 'archived' ORDER BY name").all() as Project[];
+}
+
+/**
+ * Patrones de ruta que ningún agente puede modificar en este proyecto.
+ *
+ * Se guardan como JSON porque SQLite no tiene listas. Un valor corrupto se trata como
+ * lista vacía: dejar el sistema sin arrancar por un campo mal escrito sería peor que
+ * quedarse sin la protección y decirlo en el arranque.
+ */
+export function protectedPaths(project: Project): string[] {
+  try {
+    const valor = JSON.parse(project.protected_paths) as unknown;
+    return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 export function setProjectGoal(db: Db, id: string, goal: string): void {
@@ -110,6 +132,35 @@ export function agentForRole(db: Db, projectId: string, role: AgentRole): Agent 
 
 export function agentTools(agent: Agent): string[] {
   return JSON.parse(agent.allowed_tools) as string[];
+}
+
+/**
+ * Deja las herramientas y el modelo de cada agente como los declara el código.
+ *
+ * Ni las herramientas ni el modelo se editan desde la web: viven en `roles.ts`, porque son
+ * permisos y no texto. Sincronizarlos al arrancar es lo que hace que añadir una herramienta
+ * a un rol llegue también a los proyectos que ya estaban registrados.
+ *
+ * Devuelve los agentes que ha tenido que cambiar.
+ */
+export function sincronizarAgentes(db: Db, projectId: string): Agent[] {
+  const cambiados: Agent[] = [];
+
+  for (const agent of listAgents(db, projectId)) {
+    const herramientas = JSON.stringify(ROLE_DEFAULTS[agent.role].tools);
+    const modelo = modeloPara(agent.role, agent.engine);
+    if (agent.allowed_tools === herramientas && agent.model === modelo) continue;
+
+    db.prepare('UPDATE agents SET allowed_tools = ?, model = ?, updated_at = ? WHERE id = ?').run(
+      herramientas,
+      modelo,
+      now(),
+      agent.id,
+    );
+    cambiados.push(db.prepare('SELECT * FROM agents WHERE id = ?').get(agent.id) as Agent);
+  }
+
+  return cambiados;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +232,8 @@ export interface UpdateProjectInput {
   run_timeout_ms?: number;
   status?: Project['status'];
   mode?: ProjectMode;
+  protected_paths?: string;
+  use_personal_config?: number;
 }
 
 /** Cambia la configuración de un proyecto. Solo toca los campos que se le pasan. */
@@ -223,12 +276,36 @@ export function setProjectMode(db: Db, id: string, mode: ProjectMode): Project {
   return updateProject(db, id, { mode });
 }
 
-/** Cambia el motor con el que se ejecuta un agente. */
+/**
+ * Decide si los motores de este proyecto se lanzan con la configuración personal de quien
+ * arranca el sistema.
+ *
+ * El cambio vale para las ejecuciones que empiecen a partir de ahora. Una ejecución en
+ * marcha termina con la configuración con la que arrancó.
+ */
+export function setProjectPersonalConfig(db: Db, id: string, usar: boolean): Project {
+  return updateProject(db, id, { use_personal_config: usar ? 1 : 0 });
+}
+
+/**
+ * Cambia el motor con el que se ejecuta un agente.
+ *
+ * El modelo se ajusta al motor nuevo: el nombre de un modelo de Claude Code no significa
+ * nada para Codex, así que dejar el anterior haría fallar todas sus ejecuciones.
+ */
 export function setAgentEngine(db: Db, agentId: string, engine: EngineName): Agent {
-  db.prepare('UPDATE agents SET engine = ?, updated_at = ? WHERE id = ?').run(engine, now(), agentId);
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent | undefined;
-  if (!agent) throw new Error(`El agente ${agentId} no existe.`);
-  return agent;
+  const actual = db.prepare('SELECT role FROM agents WHERE id = ?').get(agentId) as
+    | { role: AgentRole }
+    | undefined;
+  if (!actual) throw new Error(`El agente ${agentId} no existe.`);
+
+  db.prepare('UPDATE agents SET engine = ?, model = ?, updated_at = ? WHERE id = ?').run(
+    engine,
+    modeloPara(actual.role, engine),
+    now(),
+    agentId,
+  );
+  return db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as Agent;
 }
 
 /** Activa o desactiva un agente. Un agente desactivado no recibe trabajo. */

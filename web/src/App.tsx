@@ -11,6 +11,7 @@ import {
   type TaskDetail,
 } from './api';
 import { Actividad } from './components/Actividad';
+import { AbrirCarpeta } from './components/AbrirCarpeta';
 import { Ajustes } from './components/Ajustes';
 import { Cabecera } from './components/Cabecera';
 import { Chat } from './components/Chat';
@@ -31,6 +32,7 @@ export function App() {
   const [motores, setMotores] = useState<MotoresDisponibles | null>(null);
 
   const [ajustesAbiertos, setAjustesAbiertos] = useState(false);
+  const [carpetaAbierta, setCarpetaAbierta] = useState(false);
   // El trabajo vive en un cajón lateral que se abre cuando hace falta: el sitio de la
   // pantalla es para los agentes.
   const [trabajoAbierto, setTrabajoAbierto] = useState(false);
@@ -57,7 +59,9 @@ export function App() {
           setError('No hay ningún proyecto registrado.');
           return;
         }
-        setProjectId(lista[0]!.id);
+        // Solo una carpeta trabaja a la vez. Se abre la que está en marcha, no la primera
+        // de la lista, que podría ser una que se dejó en pausa hace días.
+        setProjectId((lista.find((p) => p.status === 'active') ?? lista[0]!).id);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -220,6 +224,7 @@ export function App() {
         tareasAtascadas={atascadas}
         listasParaIntegrar={resumen.integrable.length}
         alCambiarModo={(modo) => void api.cambiarModo(resumen.project.id, modo).then(recargarTodo)}
+        alAbrirCarpeta={() => setCarpetaAbierta(true)}
         alQuitarFoco={() => setFoco(null)}
       />
 
@@ -381,6 +386,24 @@ export function App() {
           {atascadas > 0 && <span className="senal" title={`${atascadas} tareas atascadas`} />}
         </button>
       </nav>
+
+      {carpetaAbierta && (
+        <AbrirCarpeta
+          rutaActual={resumen.project.repo_path}
+          alCerrar={() => setCarpetaAbierta(false)}
+          alAbrir={(proyecto) => {
+            setCarpetaAbierta(false);
+            // Cambiar de proyecto vacía lo que se veía de la carpeta anterior. Recargarlo
+            // todo lo repuebla, pero mientras tanto no se enseñan datos de otra carpeta.
+            setTareas([]);
+            setAgentes([]);
+            setMensajes([]);
+            setEventos([]);
+            setFoco(null);
+            setProjectId(proyecto.id);
+          }}
+        />
+      )}
 
       {ajustesAbiertos && (
         <Ajustes

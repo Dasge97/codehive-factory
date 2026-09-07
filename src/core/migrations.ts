@@ -394,4 +394,20 @@ CREATE INDEX idx_tasks_queue  ON tasks(project_id, status, required_role, priori
 CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
 `,
   },
+
+  {
+    version: 4,
+    name: 'ficheros protegidos y aislamiento de la configuración personal',
+    sql: `
+-- Patrones de ruta que ningún agente puede modificar. El valor se relee de
+-- codehive.project.json en cada arranque, así que el fichero manda sobre esta columna.
+ALTER TABLE projects ADD COLUMN protected_paths TEXT NOT NULL DEFAULT '[]';
+
+-- Si los motores se lanzan con la configuración personal de quien arranca el sistema:
+-- su CLAUDE.md, sus hooks, sus ficheros de ajustes y sus servidores MCP. Por omisión no.
+-- Un proyecto gestionado no debería comportarse distinto según cómo tenga configurado su
+-- editor la persona que levanta el servicio.
+ALTER TABLE projects ADD COLUMN use_personal_config INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

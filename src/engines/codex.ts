@@ -103,12 +103,15 @@ export class CodexEngine implements Engine {
       'exec',
       '--json',
       '--skip-git-repo-check',
-      // Sin esta opción, los servidores MCP configurados en el equipo entran en la sesión
-      // del agente. En la comprobación de la fase 0, el agente guardó datos en una memoria
-      // persistente ajena al proyecto.
-      '--ignore-user-config',
       '--output-last-message', rutaResultado,
     ];
+
+    // Sin esta opción, los servidores MCP y los ajustes personales del equipo entran en la
+    // sesión del agente. En la comprobación de la fase 0, el agente guardó datos en una
+    // memoria persistente ajena al proyecto.
+    if (!request.usePersonalConfig) {
+      args.push('--ignore-user-config');
+    }
 
     if (necesitaEjecutarOrdenes(request.permissionMode)) {
       // Fuera del sandbox de Codex, que en Windows impide ejecutar cualquier orden.

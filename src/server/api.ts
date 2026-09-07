@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response } from 'express';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { Db } from '../core/db.js';
 import { EventBus, listEvents, listRecentEvents } from '../core/events.js';
 import { integrableTasks, integrateTask } from '../core/integration.js';
@@ -13,6 +14,7 @@ import {
   setAgentEngine,
   setAgentWorkers,
   setProjectMode,
+  setProjectPersonalConfig,
   setProjectStatus,
   updateProject,
 } from '../core/projects.js';
@@ -25,12 +27,14 @@ import {
   PROJECT_MODES,
   type Approval,
   type EngineName,
+  type Project,
   type ProjectMode,
   type Run,
   type Task,
 } from '../shared/types.js';
 import type { Supervisor } from '../workers/supervisor.js';
 import type { EngineRegistry } from '../engines/registry.js';
+import { elegirCarpetaNativa, haySelectorNativo } from './selector-carpeta.js';
 
 export interface ApiDeps {
   db: Db;
@@ -38,6 +42,8 @@ export interface ApiDeps {
   supervisor: Supervisor;
   /** Motores disponibles. Sirve para no dejar configurar uno que no está instalado. */
   engines?: EngineRegistry;
+  /** Abre una carpeta del disco y la deja como el proyecto en marcha. */
+  abrirCarpeta?: (ruta: string) => Promise<Project>;
   /** Carpeta con la web ya compilada. Si no existe, el servidor solo ofrece la API. */
   webDir?: string;
 }
@@ -58,7 +64,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>) {
   };
 }
 
-export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Express {
+export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }: ApiDeps): Express {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
@@ -68,6 +74,100 @@ export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Ex
 
   app.get('/api/projects', (_req, res) => {
     res.json(listProjects(db));
+  });
+
+  /**
+   * Abre una carpeta del disco. Es el equivalente a cambiar de carpeta en el editor: a
+   * partir de aquí el equipo trabaja sobre ella y la anterior queda en pausa.
+   */
+  app.post(
+    '/api/projects/open',
+    asyncHandler(async (req, res) => {
+      if (!abrirCarpeta) {
+        res.status(501).json({ error: 'Este servicio no puede abrir carpetas.' });
+        return;
+      }
+
+      const ruta = String(req.body?.path ?? '').trim();
+      if (!ruta) {
+        res.status(400).json({ error: 'Falta la ruta de la carpeta.' });
+        return;
+      }
+
+      try {
+        res.json(await abrirCarpeta(ruta));
+      } catch (e) {
+        // No poder abrir una carpeta es una respuesta normal, no un fallo del servicio: la
+        // ruta no existe, o no es un repositorio de Git.
+        res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }),
+  );
+
+  /**
+   * Lista las carpetas que hay dentro de una ruta, para poder elegir cuál abrir.
+   *
+   * Solo devuelve nombres de carpetas, nunca el contenido de un fichero. Marca cuáles son
+   * repositorios de Git, que son las únicas que se pueden abrir.
+   */
+  /**
+   * Abre el diálogo de carpetas del sistema y devuelve la que se elija.
+   *
+   * La ventana aparece en el equipo donde corre el servicio, no en el que mira la web. Por
+   * eso el explorador de la web sigue estando: desde el móvil es la única forma.
+   */
+  app.post(
+    '/api/browse/native',
+    asyncHandler(async (req, res) => {
+      if (!haySelectorNativo()) {
+        res.status(501).json({ error: 'Este equipo no puede abrir el diálogo de carpetas del sistema.' });
+        return;
+      }
+
+      try {
+        const elegida = await elegirCarpetaNativa(String(req.body?.path ?? '').trim() || undefined);
+        res.json({ path: elegida, cancelled: elegida === null });
+      } catch (e) {
+        res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }),
+  );
+
+  app.get('/api/browse', (req, res) => {
+    const pedida = String(req.query['path'] ?? '').trim();
+    const actual = resolve(pedida || homedir());
+
+    if (!existsSync(actual)) {
+      res.status(404).json({ error: `La carpeta ${actual} no existe.` });
+      return;
+    }
+
+    let entradas: Array<{ name: string; path: string; is_git_repo: boolean }> = [];
+    try {
+      entradas = readdirSync(actual, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => {
+          const ruta = join(actual, e.name);
+          return { name: e.name, path: ruta, is_git_repo: existsSync(join(ruta, '.git')) };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    } catch (e) {
+      res.status(403).json({ error: `No se puede leer ${actual}: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+
+    const padre = dirname(actual);
+
+    res.json({
+      path: actual,
+      // En la raíz de una unidad, `dirname` devuelve la misma ruta. No hay a dónde subir.
+      parent: padre === actual ? null : padre,
+      is_git_repo: existsSync(join(actual, '.git')),
+      entries: entradas,
+      roots: unidades(),
+      // La web solo ofrece el botón del diálogo del sistema si el equipo puede abrirlo.
+      native_picker: haySelectorNativo(),
+    });
   });
 
   app.get('/api/projects/:id', (req, res) => {
@@ -164,6 +264,13 @@ export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Ex
     // El cambio vale para las tareas que se creen desde ahora. Las que ya están en marcha
     // terminan con las reglas con las que empezaron.
     res.json(setProjectMode(db, param(req, 'id'), mode as ProjectMode));
+  });
+
+  app.post('/api/projects/:id/personal-config', (req, res) => {
+    // El cambio vale para las ejecuciones que empiecen a partir de ahora. Una ejecución en
+    // marcha termina con la configuración con la que arrancó.
+    const usar = req.body?.use_personal_config === true;
+    res.json(setProjectPersonalConfig(db, param(req, 'id'), usar));
   });
 
   app.post('/api/projects/:id/orchestrator/stop', (_req, res) => {
@@ -384,6 +491,27 @@ export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Ex
   }
 
   return app;
+}
+
+/**
+ * Unidades del equipo, para poder saltar de una a otra desde el explorador.
+ *
+ * En Windows no hay una raíz única desde la que se llegue a todo, así que se comprueba
+ * letra por letra cuáles existen. En los demás sistemas, la raíz es una sola.
+ */
+function unidades(): string[] {
+  if (process.platform !== 'win32') return ['/'];
+
+  const encontradas: string[] = [];
+  for (let letra = 'A'.charCodeAt(0); letra <= 'Z'.charCodeAt(0); letra++) {
+    const unidad = `${String.fromCharCode(letra)}:${sep}`;
+    try {
+      if (statSync(unidad).isDirectory()) encontradas.push(unidad);
+    } catch {
+      // La unidad no existe o no está lista. No es un error: simplemente no se ofrece.
+    }
+  }
+  return encontradas;
 }
 
 function escribirEvento(res: Response, id: number, evento: unknown): void {

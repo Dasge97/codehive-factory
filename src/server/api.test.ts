@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp, type App } from '../app.js';
@@ -272,3 +272,112 @@ async function esperar<T>(leer: () => T, cumple: (valor: T) => boolean, msMaximo
     await new Promise((r) => setTimeout(r, 50));
   }
 }
+
+describe('abrir otra carpeta', () => {
+  let otro: string;
+
+  beforeEach(async () => {
+    otro = await crearRepo();
+    writeFileSync(
+      join(otro, 'codehive.project.json'),
+      JSON.stringify({ name: 'La otra carpeta', main_branch: 'main' }, null, 2),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(otro, { recursive: true, force: true });
+  });
+
+  it('registra la carpeta nueva con su equipo completo', async () => {
+    const r = await post('/api/projects/open', { path: otro });
+
+    expect(r.status).toBe(200);
+    expect(r.body.name).toBe('La otra carpeta');
+
+    const agentes = await get(`/api/projects/${r.body.id}/agents`);
+    expect(agentes.body).toHaveLength(AGENT_ROLES.length);
+  });
+
+  it('la carpeta anterior queda en pausa y la nueva en marcha', async () => {
+    const antes = app.project.id;
+    const r = await post('/api/projects/open', { path: otro });
+
+    const proyectos = (await get('/api/projects')).body as Array<{ id: string; status: string }>;
+    expect(proyectos.find((p) => p.id === antes)!.status).toBe('paused');
+    expect(proyectos.find((p) => p.id === r.body.id)!.status).toBe('active');
+  });
+
+  it('el equipo pasa a repartir trabajo sobre la carpeta nueva', async () => {
+    const r = await post('/api/projects/open', { path: otro });
+    expect(app.supervisor.proyectoAbierto()).toBe(r.body.id);
+  });
+
+  it('volver a una carpeta ya abierta reutiliza su proyecto, no crea otro', async () => {
+    const primera = await post('/api/projects/open', { path: otro });
+    const segunda = await post('/api/projects/open', { path: otro });
+
+    expect(segunda.body.id).toBe(primera.body.id);
+    expect((await get('/api/projects')).body).toHaveLength(2);
+  });
+
+  it('una carpeta que no es un repositorio de Git se rechaza con un motivo claro', async () => {
+    const suelta = mkdtempSync(join(tmpdir(), 'chf-suelta-'));
+    try {
+      const r = await post('/api/projects/open', { path: suelta });
+      expect(r.status).toBe(400);
+      expect(r.body.error).toContain('git init');
+    } finally {
+      rmSync(suelta, { recursive: true, force: true });
+    }
+  });
+
+  it('una ruta que no existe se rechaza sin tocar nada', async () => {
+    const r = await post('/api/projects/open', { path: join(otro, 'no-existe-esta-carpeta') });
+    expect(r.status).toBe(400);
+    expect(app.supervisor.proyectoAbierto()).toBe(app.project.id);
+  });
+
+  it('sin ruta no hace nada', async () => {
+    expect((await post('/api/projects/open', {})).status).toBe(400);
+  });
+});
+
+describe('explorador de carpetas', () => {
+  it('lista las carpetas de una ruta y marca cuáles son repositorios', async () => {
+    mkdirSync(join(repo, 'subcarpeta'));
+    const r = await get(`/api/browse?path=${encodeURIComponent(repo)}`);
+
+    expect(r.status).toBe(200);
+    expect(r.body.path).toBe(repo);
+    expect(r.body.is_git_repo).toBe(true);
+
+    const nombres = (r.body.entries as Array<{ name: string }>).map((e) => e.name);
+    expect(nombres).toContain('subcarpeta');
+    // Los ficheros no aparecen: el explorador es solo de carpetas.
+    expect(nombres).not.toContain('README.md');
+  });
+
+  it('desde una carpeta se puede subir a la de arriba', async () => {
+    const r = await get(`/api/browse?path=${encodeURIComponent(repo)}`);
+    expect(r.body.parent).not.toBeNull();
+
+    const arriba = await get(`/api/browse?path=${encodeURIComponent(r.body.parent)}`);
+    expect(arriba.status).toBe(200);
+  });
+
+  it('ofrece al menos una unidad desde la que empezar', async () => {
+    const r = await get(`/api/browse?path=${encodeURIComponent(repo)}`);
+    expect((r.body.roots as string[]).length).toBeGreaterThan(0);
+  });
+
+  it('una ruta que no existe devuelve 404', async () => {
+    const r = await get(`/api/browse?path=${encodeURIComponent(join(repo, 'no-existe'))}`);
+    expect(r.status).toBe(404);
+  });
+
+  it('dice si el equipo puede abrir el diálogo de carpetas del sistema', async () => {
+    const r = await get(`/api/browse?path=${encodeURIComponent(repo)}`);
+    // En Windows se ofrece el diálogo del sistema. En los demás, solo el explorador de la web.
+    expect(r.body.native_picker).toBe(process.platform === 'win32');
+  });
+});

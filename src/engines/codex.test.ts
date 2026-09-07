@@ -26,6 +26,15 @@ describe('argumentos de la línea de órdenes', () => {
     expect(args[args.length - 1]).toBe('-');
   });
 
+  it('con la configuración personal activada deja de ignorar los ajustes del equipo', () => {
+    const args = motor.buildArgs(
+      { ...peticionBase, usePersonalConfig: true },
+      null,
+      '/tmp/resultado.txt',
+    );
+    expect(args).not.toContain('--ignore-user-config');
+  });
+
   it('el agente puede ejecutar órdenes en su espacio de trabajo', () => {
     const args = motor.buildArgs({ ...peticionBase, permissionMode: 'bypassPermissions' }, null, '/tmp/r.txt');
     // En Windows, el sandbox propio de Codex rechaza lanzar PowerShell, así que con él

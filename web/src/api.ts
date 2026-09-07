@@ -148,6 +148,27 @@ export interface SystemEvent {
   created_at: string;
 }
 
+/** Una carpeta que el sistema ya tiene registrada. */
+export interface ProyectoRegistrado {
+  id: string;
+  name: string;
+  repo_path: string;
+  status: string;
+}
+
+/** Lo que devuelve el explorador de carpetas. */
+export interface CarpetaListada {
+  path: string;
+  /** Carpeta de arriba, o null si ya se está en la raíz de la unidad. */
+  parent: string | null;
+  is_git_repo: boolean;
+  entries: Array<{ name: string; path: string; is_git_repo: boolean }>;
+  /** Unidades del equipo, para saltar de una a otra. */
+  roots: string[];
+  /** El equipo puede abrir el diálogo de carpetas del sistema. */
+  native_picker: boolean;
+}
+
 export interface ProjectOverview {
   project: {
     id: string;
@@ -161,6 +182,8 @@ export interface ProjectOverview {
     max_task_attempts: number;
     status: string;
     mode: ProjectMode;
+    /** 1 si los motores usan la configuración personal de quien arranca el sistema. */
+    use_personal_config: number;
   };
   snapshot: {
     goal: string | null;
@@ -204,7 +227,30 @@ async function pedir<T>(ruta: string, opciones?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  proyectos: () => pedir<Array<{ id: string; name: string }>>('/projects'),
+  proyectos: () => pedir<ProyectoRegistrado[]>('/projects'),
+
+  /** Carpetas que hay dentro de una ruta, para elegir cuál abrir. */
+  explorar: (ruta?: string) =>
+    pedir<CarpetaListada>(`/browse${ruta ? `?path=${encodeURIComponent(ruta)}` : ''}`),
+
+  /**
+   * Abre el diálogo de carpetas del sistema y espera a que se elija una.
+   *
+   * La ventana sale en el equipo donde corre el servicio. Devuelve la ruta, o null si se
+   * cancela.
+   */
+  selectorNativo: (inicio?: string) =>
+    pedir<{ path: string | null; cancelled: boolean }>('/browse/native', {
+      method: 'POST',
+      body: JSON.stringify({ path: inicio ?? '' }),
+    }),
+
+  /** Abre una carpeta. A partir de aquí el equipo trabaja sobre ella. */
+  abrirCarpeta: (ruta: string) =>
+    pedir<ProyectoRegistrado>('/projects/open', {
+      method: 'POST',
+      body: JSON.stringify({ path: ruta }),
+    }),
   proyecto: (id: string) => pedir<ProjectOverview>(`/projects/${id}`),
   tareas: (id: string) => pedir<Task[]>(`/projects/${id}/tasks`),
   agentes: (id: string) => pedir<AgentView[]>(`/projects/${id}/agents`),
@@ -241,6 +287,12 @@ export const api = {
 
   pausarProyecto: (id: string, paused: boolean) =>
     pedir<{ status: string }>(`/projects/${id}/pause`, { method: 'POST', body: JSON.stringify({ paused }) }),
+
+  cambiarConfiguracionPersonal: (id: string, usar: boolean) =>
+    pedir<{ use_personal_config: number }>(`/projects/${id}/personal-config`, {
+      method: 'POST',
+      body: JSON.stringify({ use_personal_config: usar }),
+    }),
 
   cambiarModo: (id: string, mode: ProjectMode) =>
     pedir<{ mode: ProjectMode }>(`/projects/${id}/mode`, {

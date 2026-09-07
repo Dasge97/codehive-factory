@@ -5,8 +5,17 @@ import { z } from 'zod';
 import { openDatabase, type Db } from './core/db.js';
 import { EventBus } from './core/events.js';
 import { AGENT_ROLES, type AgentRole, type EngineName, type Project } from './shared/types.js';
-import { createAgent, createProject, listAgents, listProjects } from './core/projects.js';
-import { ENGINE_POR_ROL, ROLE_DEFAULTS, comprobarInstrucciones, instructionsFor } from './core/roles.js';
+import {
+  createAgent,
+  createProject,
+  listAgents,
+  listProjects,
+  requireProject,
+  setProjectStatus,
+  sincronizarAgentes,
+  updateProject,
+} from './core/projects.js';
+import { ENGINE_POR_ROL, ROLE_DEFAULTS, comprobarInstrucciones, instructionsFor, modeloPara } from './core/roles.js';
 import { EngineRegistry } from './engines/registry.js';
 import type { Engine } from './engines/types.js';
 import { createApi } from './server/api.js';
@@ -23,6 +32,11 @@ export const projectConfigSchema = z.object({
   max_task_attempts: z.number().int().min(1).max(10).default(3),
   run_timeout_ms: z.number().int().min(60_000).default(900_000),
   protected_paths: z.array(z.string()).default([]),
+  /**
+   * Valor con el que nace el proyecto. Después se cambia con el botón de la web, y este
+   * campo deja de mandar: si no, cada reinicio deshacería lo que se hubiera elegido.
+   */
+  use_personal_config: z.boolean().default(false),
   model: z.string().nullable().optional(),
 });
 
@@ -73,10 +87,15 @@ export function ensureProject(
 ): Project {
   const existente = listProjects(db).find((p) => resolve(p.repo_path) === resolve(repoPath));
   if (existente) {
+    // Los ficheros protegidos se releen en cada arranque. Son una decisión que se revisa
+    // en el repositorio, no un ajuste que se toque desde la web, así que manda el fichero.
+    updateProject(db, existente.id, { protected_paths: JSON.stringify(config.protected_paths) });
+
     // Un proyecto registrado antes de que existiera un rol no tiene ese agente. Se le
     // crea ahora: si no, el rol nuevo aparece en el código pero nunca en el equipo.
     crearAgentesQueFaltan(db, existente, model ?? config.model ?? null, motoresDisponibles);
-    return existente;
+    sincronizarAgentes(db, existente.id);
+    return requireProject(db, existente.id);
   }
 
   const project = createProject(db, {
@@ -88,10 +107,13 @@ export function ensureProject(
     max_concurrent_runs: config.max_concurrent_runs,
     max_task_attempts: config.max_task_attempts,
     run_timeout_ms: config.run_timeout_ms,
+    protected_paths: config.protected_paths,
+    use_personal_config: config.use_personal_config,
   });
 
   crearAgentesQueFaltan(db, project, model ?? config.model ?? null, motoresDisponibles);
-  return project;
+  sincronizarAgentes(db, project.id);
+  return requireProject(db, project.id);
 }
 
 /**
@@ -125,7 +147,9 @@ export function crearAgentesQueFaltan(
       name: ROLE_DEFAULTS[role].name,
       role,
       engine,
-      model,
+      // Sin modelo explícito, el motor coge el que tenga en sus ajustes quien arrancó el
+      // sistema, y el mismo proyecto se comporta distinto en cada equipo.
+      model: model ?? modeloPara(role, engine),
       // El texto que se guarda aquí es el que tenía el agente al crearlo, para dejar
       // constancia. Lo que se le manda en cada ejecución se lee de los ficheros de
       // `instrucciones/`, así que editarlos cambia su comportamiento sin recrear nada.
@@ -137,6 +161,35 @@ export function crearAgentesQueFaltan(
   }
 
   return creados;
+}
+
+/**
+ * Deja una carpeta como la única que trabaja.
+ *
+ * El sistema recuerda todos los proyectos que se han abierto alguna vez, pero solo uno
+ * está en marcha. Las demás carpetas quedan en pausa: lo que tengan a medio ejecutar
+ * termina, no se les arranca nada nuevo, y al volver a abrirlas siguen donde estaban.
+ */
+export function dejarSoloEnMarcha(
+  db: Db,
+  bus: EventBus,
+  supervisor: Supervisor,
+  projectId: string,
+): Project {
+  for (const otro of listProjects(db)) {
+    if (otro.id !== projectId && otro.status === 'active') {
+      setProjectStatus(db, otro.id, 'paused');
+    }
+  }
+  setProjectStatus(db, projectId, 'active');
+
+  // Una ejecución que figure en marcha y no esté viva en este proceso es de una sesión
+  // anterior del sistema: su proceso ya no existe y su tarea tiene que volver a la cola.
+  const vivas = new Set(supervisor.activeWork().map((t) => t.run_id));
+  recoverInterruptedRuns(db, bus, projectId, vivas);
+
+  supervisor.abrirProyecto(projectId);
+  return requireProject(db, projectId);
 }
 
 /** Monta el sistema completo: base de datos, motor, supervisor y servidor web. */
@@ -165,18 +218,45 @@ export async function createApp(config: AppConfig): Promise<App> {
     engines.available().map((m) => m.name),
   );
 
-  // Al arrancar no puede quedar ninguna ejecución en marcha: sus procesos ya no existen.
-  const recuperadas = recoverInterruptedRuns(db, bus, project.id);
-  if (recuperadas > 0) {
-    console.log(`Se han devuelto a la cola ${recuperadas} tareas que quedaron a medias.`);
+  const supervisor = new Supervisor(db, bus, project.id, config.engine ?? engines);
+
+  /**
+   * Abre una carpeta del disco y la deja como el proyecto en marcha.
+   *
+   * Registra la carpeta si es la primera vez que se abre, y la reutiliza si ya estaba:
+   * volver a una carpeta anterior recupera su equipo, sus tareas y su conversación.
+   */
+  async function abrirCarpeta(ruta: string): Promise<Project> {
+    const destino = resolve(ruta);
+
+    if (!existsSync(destino)) {
+      throw new Error(`La carpeta ${destino} no existe.`);
+    }
+    if (!(await isGitRepo(destino))) {
+      throw new Error(
+        `${destino} no es un repositorio de Git. Ejecuta git init dentro de la carpeta antes de abrirla.`,
+      );
+    }
+
+    const abierto = ensureProject(
+      db,
+      destino,
+      readProjectConfig(destino),
+      null,
+      engines.available().map((m) => m.name),
+    );
+    return dejarSoloEnMarcha(db, bus, supervisor, abierto.id);
   }
 
-  const supervisor = new Supervisor(db, bus, project.id, config.engine ?? engines);
+  // Al arrancar, la carpeta indicada al lanzar el sistema es la que queda abierta.
+  dejarSoloEnMarcha(db, bus, supervisor, project.id);
+
   const api = createApi({
     db,
     bus,
     supervisor,
     engines,
+    abrirCarpeta,
     webDir: config.webDir ?? join(process.cwd(), 'web-dist'),
   });
 

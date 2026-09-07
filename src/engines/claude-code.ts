@@ -106,15 +106,19 @@ export class ClaudeCodeEngine implements Engine {
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
-      // Sin esta opción, los servidores MCP del equipo siguen disponibles para el agente
-      // aunque se restrinjan las herramientas (apartado 11.3).
-      '--strict-mcp-config',
       // Nadie puede responder a un prompt de permiso, así que lo que necesite permiso se
       // deniega y queda registrado para que decida el creador (decisión D22).
       '--permission-prompts', 'none',
       '--permission-mode', request.permissionMode ?? 'acceptEdits',
       '--tools', request.allowedTools.join(','),
     ];
+
+    // Sin estas tres opciones, el agente hereda la configuración personal de quien arrancó
+    // el sistema: su CLAUDE.md, sus hooks, sus ficheros de ajustes y sus servidores MCP.
+    // El proyecto se comportaría distinto según en qué equipo se levante.
+    if (!request.usePersonalConfig) {
+      args.push('--safe-mode', '--setting-sources', '', '--strict-mcp-config');
+    }
 
     if (request.model) args.push('--model', request.model);
     if (request.resultSchema) args.push('--json-schema', JSON.stringify(request.resultSchema));

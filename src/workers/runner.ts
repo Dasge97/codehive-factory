@@ -4,10 +4,12 @@ import { promisify } from 'node:util';
 import type { Db } from '../core/db.js';
 import { EventBus, appendEvent } from '../core/events.js';
 import { buildAssignment, renderAssignment } from '../core/assignment.js';
-import { agentTools, requireProject } from '../core/projects.js';
+import { agentTools, protectedPaths, requireProject } from '../core/projects.js';
 import { instructionsFor } from '../core/roles.js';
+import { ejecutarVerificacion } from '../core/integration.js';
+import { ficherosProtegidos, motivoDeBloqueo } from '../core/protected-paths.js';
 import { openFindings, publishIncrement } from '../core/review.js';
-import { markNoticesDelivered, requireTask, setStatus } from '../core/tasks.js';
+import { addNotice, markNoticesDelivered, requireTask, setStatus } from '../core/tasks.js';
 import { isRunCurrent, recordStaleResult, releaseLease } from '../core/leases.js';
 import { helpRequestToTask, markDelivered } from '../core/agent-messages.js';
 import { newId, now } from '../shared/ids.js';
@@ -16,6 +18,7 @@ import {
   agentResultSchema,
   type Agent,
   type AgentResult,
+  type Project,
   type Run,
   type Task,
 } from '../shared/types.js';
@@ -92,6 +95,7 @@ export async function runTask(
       // realmente lo limita es la lista de herramientas y el aislamiento del worktree,
       // no el prompt de permisos (decisión D26).
       permissionMode: 'bypassPermissions',
+      usePersonalConfig: project.use_personal_config === 1,
     },
     (progreso) => {
       appendEvent(db, bus, {
@@ -118,7 +122,16 @@ export async function runTask(
   }
   const denegaciones = saveApprovals(db, bus, task, run, outcome);
 
-  const { result, parseError } = parseResult(outcome.resultText);
+  const { result: declarado, parseError } = parseResult(outcome.resultText);
+
+  // Lo que el agente diga sobre la verificación no se da por bueno: se ejecuta y se mide.
+  const result = await conVerificacionMedida(db, bus, {
+    task,
+    run,
+    project,
+    workspacePath: workspace.path,
+    result: declarado,
+  });
 
   const incrementId = await recordWork(db, bus, {
     task,
@@ -126,6 +139,7 @@ export async function runTask(
     project_repo: project.repo_path,
     workspacePath: workspace.path,
     baseCommit: workspace.baseCommit,
+    protectedPaths: protectedPaths(project),
     result,
   });
 
@@ -240,10 +254,93 @@ export function parseResult(texto: string | null): { result: AgentResult | null;
 }
 
 // ---------------------------------------------------------------------------
+// Verificación medida por el sistema
+// ---------------------------------------------------------------------------
+
+interface VerificacionInput {
+  task: Task;
+  run: Run;
+  project: Project;
+  workspacePath: string;
+  result: AgentResult | null;
+}
+
+/**
+ * Ejecuta el comando de verificación del proyecto y sustituye por el resultado medido lo
+ * que el agente declaró en su resultado.
+ *
+ * El campo `verification` es lo que decide si un trabajo se puede saltar la revisión. Si
+ * saliera de la palabra del agente, bastaría con que dijera que las pruebas pasan, sin
+ * haberlas ejecutado, para que su código quedara terminado sin que nadie lo mirase.
+ * Ejecutarlo aquí convierte esa afirmación en un hecho comprobado.
+ */
+async function conVerificacionMedida(
+  db: Db,
+  bus: EventBus,
+  input: VerificacionInput,
+): Promise<AgentResult | null> {
+  const { task, run, project, result } = input;
+
+  if (!result) return result;
+  // Una tarea que no escribe código no deja nada que verificar. Una revisión, además,
+  // trabaja sobre el repositorio principal, donde el comando no diría nada de su trabajo.
+  if (!ESCRIBEN_CODIGO.has(task.kind)) return result;
+  if (!project.verify_command) return result;
+
+  const medida = await ejecutarVerificacion(project.verify_command, input.workspacePath);
+
+  const declarada = result.verification;
+  const declaroAlgoFalso = declarada?.ran === true && declarada.passed === true && !medida.passed;
+
+  appendEvent(db, bus, {
+    project_id: task.project_id,
+    type: 'run.progress',
+    task_id: task.id,
+    run_id: run.id,
+    payload: {
+      kind: 'notice',
+      text: declaroAlgoFalso
+        ? `El agente dijo que la verificación pasaba. Ejecutada por el sistema con ${medida.command}, no pasa.`
+        : `Verificación ejecutada por el sistema con ${medida.command}: ${medida.passed ? 'pasa' : 'no pasa'}.`,
+      is_error: !medida.passed,
+    },
+  });
+
+  // El aviso se entrega en el siguiente intento de esta tarea, que es cuando el agente
+  // puede hacer algo con él (decisión D12).
+  if (declaroAlgoFalso) {
+    addNotice(
+      db,
+      task.id,
+      'system',
+      'En tu intento anterior dijiste que la verificación del proyecto pasaba. El sistema la ejecutó y no pasa. Comprueba el resultado real antes de terminar.',
+    );
+  }
+
+  return {
+    ...result,
+    verification: {
+      ran: true,
+      command: medida.command,
+      passed: medida.passed,
+      output_excerpt: medida.output.slice(-2000),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Guardado
 // ---------------------------------------------------------------------------
 
-function saveUsage(db: Db, bus: EventBus, engine: string, outcome: EngineRunOutcome): void {
+/**
+ * Guarda el consumo de la suscripción que el motor informa al terminar una ejecución.
+ *
+ * Es la única forma de saber la cuota: el motor la publica dentro de la ejecución, y no
+ * hay forma de preguntarla aparte. Por eso la llaman todos los sitios que ejecutan un
+ * motor, incluido el turno del orquestador. Si solo la llamara el runner, la cifra se
+ * quedaría vieja en cuanto pasara un rato sin tareas.
+ */
+export function saveUsage(db: Db, bus: EventBus, engine: string, outcome: EngineRunOutcome): void {
   if (!outcome.usage) return;
   const u = outcome.usage;
 
@@ -308,6 +405,8 @@ interface RecordWorkInput {
   project_repo: string;
   workspacePath: string;
   baseCommit: string;
+  /** Patrones de ruta que este proyecto no deja tocar a nadie. */
+  protectedPaths: string[];
   result: AgentResult | null;
 }
 
@@ -361,6 +460,32 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
   if (!commit || commit.sha === input.baseCommit) return null;
 
   const ficheros = await changedFiles(input.workspacePath, input.baseCommit, commit.sha).catch(() => []);
+
+  // El agente tiene la lista de ficheros protegidos en su encargo, pero una instrucción se
+  // puede desatender. Un cambio que los toca no se publica y su tarea queda bloqueada, así
+  // que no puede llegar a integrarse sin que lo decida una persona.
+  const protegidos = ficherosProtegidos(ficheros, input.protectedPaths);
+  if (protegidos.length > 0) {
+    const motivo = motivoDeBloqueo(protegidos);
+
+    appendEvent(db, bus, {
+      project_id: task.project_id,
+      type: 'run.progress',
+      task_id: task.id,
+      run_id: run.id,
+      payload: { kind: 'notice', text: motivo, is_error: true },
+    });
+
+    addNotice(
+      db,
+      task.id,
+      'system',
+      `${motivo} Deshaz los cambios en esos ficheros antes de volver a publicar. Si de verdad hacen falta, termina con outcome igual a blocked y explica por qué.`,
+    );
+
+    setStatus(db, bus, task.id, 'blocked', motivo);
+    return null;
+  }
 
   const publicado = publishIncrement(db, bus, {
     task_id: task.id,

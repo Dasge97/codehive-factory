@@ -1,4 +1,5 @@
 import type { AgentView, EngineUsage, ProjectMode, ProjectOverview } from '../api';
+import { COLOR_ROL } from './PanelAgente';
 
 interface Props {
   resumen: ProjectOverview;
@@ -13,16 +14,20 @@ interface Props {
   tareasAtascadas: number;
   listasParaIntegrar: number;
   alCambiarModo: (modo: ProjectMode) => void;
+  /** Abre el selector de carpeta. La ruta de la cabecera es lo que se pulsa. */
+  alAbrirCarpeta: () => void;
   /** Pulsar en la cabecera quita el foco del agente que lo tuviera. */
   alQuitarFoco: () => void;
 }
 
 /**
- * Cabecera del proyecto.
+ * Cabecera del proyecto, en una sola línea.
  *
- * Lo primero que hay que saber al mirar la pantalla es dónde va a trabajar el equipo, así
- * que la ruta del repositorio y la rama están siempre visibles, no escondidas en un panel
- * de ajustes.
+ * Lleva lo que hay que saber antes de pedir nada: sobre qué carpeta trabaja el equipo, en
+ * qué rama, quién está trabajando, en qué modo, y cuánta cuota queda.
+ *
+ * Va en una línea a propósito. Todo lo que ocupa aquí se lo quita a los paneles de los
+ * agentes, que es donde de verdad pasa algo.
  */
 export function Cabecera({
   resumen,
@@ -36,36 +41,39 @@ export function Cabecera({
   tareasAtascadas,
   listasParaIntegrar,
   alCambiarModo,
+  alAbrirCarpeta,
   alQuitarFoco,
 }: Props) {
-  const trabajando = agentes.filter((a) => a.busy_workers > 0).length;
-  const uso = resumen.usage.find((u) => u.engine === 'claude_code');
+  const enPausa = resumen.project.status === 'paused';
 
   return (
     <header className="cabecera" onMouseDown={alQuitarFoco}>
       <div className="identidad">
-        <h1>{resumen.project.name}</h1>
-        <p className="ubicacion">
-          <span className="ruta" title="Carpeta del repositorio en la que trabaja el equipo">
-            {resumen.project.repo_path}
-          </span>
-          <span className="separador">·</span>
-          <span title="Rama en la que se integra el trabajo aprobado">
-            rama {resumen.project.main_branch}
-          </span>
-          <span className="separador">·</span>
-          <span>
-            {trabajando > 0
-              ? `${trabajando} de ${agentes.length} agentes trabajando`
-              : `${agentes.length} agentes en espera`}
-          </span>
-        </p>
+        <h1 title={resumen.project.name}>{resumen.project.name}</h1>
+
+        <button
+          type="button"
+          className="ruta"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={alAbrirCarpeta}
+          title={`${resumen.project.repo_path}\nPulsa para trabajar sobre otra carpeta.`}
+        >
+          {rutaCorta(resumen.project.repo_path)}
+        </button>
+
+        <span className="rama" title="Rama en la que se integra el trabajo aprobado">
+          {resumen.project.main_branch}
+        </span>
+
+        {enPausa && <span className="chip-pausa">en pausa</span>}
       </div>
+
+      <Equipo agentes={agentes} enPausa={enPausa} />
 
       <div className="cabecera-acciones">
         <Modo modo={resumen.project.mode} alCambiar={alCambiarModo} />
 
-        <Consumo uso={uso} />
+        <Consumo usos={resumen.usage} />
 
         <button
           className={`boton pequeno boton-trabajo${trabajoAbierto ? ' activo' : ''}`}
@@ -81,16 +89,91 @@ export function Cabecera({
           )}
         </button>
 
-        <button className="boton pequeno" onClick={alAbrirAjustes}>Ajustes</button>
+        <button className="boton pequeno" onClick={alAbrirAjustes}>
+          Ajustes
+        </button>
+
         <button
-          className="boton pequeno"
+          className="boton pequeno boton-tema"
           onClick={alCambiarTema}
-          title="Cambiar entre tema claro, oscuro y el del sistema"
+          title={`${NOMBRE_TEMA[tema]}. Pulsa para cambiar entre claro, oscuro y el del sistema.`}
+          aria-label={NOMBRE_TEMA[tema]}
         >
-          {tema === 'sistema' ? 'Tema del sistema' : tema === 'claro' ? 'Tema claro' : 'Tema oscuro'}
+          {ICONO_TEMA[tema]}
         </button>
       </div>
     </header>
+  );
+}
+
+const NOMBRE_TEMA = {
+  sistema: 'Tema del sistema',
+  claro: 'Tema claro',
+  oscuro: 'Tema oscuro',
+} as const;
+
+const ICONO_TEMA = { sistema: '◐', claro: '☀', oscuro: '☾' } as const;
+
+/**
+ * Deja de una ruta la carpeta y la de encima.
+ *
+ * El principio de una ruta larga no identifica nada y se come el ancho de la cabecera. El
+ * final sí dice de qué carpeta se trata. La ruta entera sigue estando al pasar el ratón.
+ */
+export function rutaCorta(ruta: string): string {
+  const partes = ruta.replace(/\\/g, '/').split('/').filter(Boolean);
+  return partes.slice(-2).join('/') || ruta;
+}
+
+/** Cómo se llama cada estado de un agente, para poder decirlo con palabras. */
+const ESTADO_EN_PALABRAS = {
+  trabajando: 'trabajando',
+  libre: 'libre',
+  apagado: 'desactivado',
+  pausa: 'parado, el proyecto está en pausa',
+} as const;
+
+type EstadoDeAgente = keyof typeof ESTADO_EN_PALABRAS;
+
+export function estadoDeAgente(agente: AgentView, enPausa: boolean): EstadoDeAgente {
+  if (!agente.enabled) return 'apagado';
+  if (agente.busy_workers > 0) return 'trabajando';
+  if (enPausa) return 'pausa';
+  return 'libre';
+}
+
+/**
+ * El equipo, como un punto por agente.
+ *
+ * Cada punto lleva el color de su rol y dice en qué está: relleno y latiendo si trabaja,
+ * hueco si está libre, apagado si el agente está desactivado o el proyecto en pausa.
+ *
+ * Ocupa una quinta parte de lo que ocupaba la frase que había antes, y dice más: se ve
+ * quién trabaja, no solo cuántos.
+ */
+function Equipo({ agentes, enPausa }: { agentes: AgentView[]; enPausa: boolean }) {
+  if (agentes.length === 0) return null;
+
+  const resumen = agentes
+    .map((a) => `${a.name}: ${ESTADO_EN_PALABRAS[estadoDeAgente(a, enPausa)]}`)
+    .join('. ');
+
+  return (
+    <div className="equipo-puntos" role="group" aria-label={`Estado del equipo. ${resumen}`}>
+      {agentes.map((agente) => {
+        const estado = estadoDeAgente(agente, enPausa);
+        const cola = agente.queue_length > 0 ? `, ${agente.queue_length} en cola` : '';
+        return (
+          <span
+            key={agente.id}
+            className="punto-agente"
+            data-rol={COLOR_ROL[agente.role]}
+            data-estado={estado}
+            title={`${agente.name}: ${ESTADO_EN_PALABRAS[estado]}${cola}`}
+          />
+        );
+      })}
+    </div>
   );
 }
 
@@ -127,29 +210,60 @@ function Modo({ modo, alCambiar }: { modo: ProjectMode; alCambiar: (modo: Projec
   );
 }
 
-/**
- * Consumo de la suscripción.
- *
- * La cifra viene del motor. Si el motor no la ha publicado todavía, no se muestra nada en
- * lugar de inventar un número.
- */
-function Consumo({ uso }: { uso: EngineUsage | undefined }) {
-  if (!uso || uso.five_hour_util === null) return null;
+/** Nombre corto de cada motor, para que se vea de quién es la cuota. */
+const NOMBRE_MOTOR: Record<string, string> = { claude_code: 'Claude', codex: 'Codex' };
 
-  const porcentaje = Math.round(uso.five_hour_util * 100);
-  const reinicio = uso.five_hour_resets
-    ? new Date(uso.five_hour_resets).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    : null;
+/** A partir de aquí, una medida es vieja y conviene decirlo. */
+const MEDIDA_VIEJA_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Consumo de cada suscripción que informa de él.
+ *
+ * Se enseña una pastilla por motor, con su nombre. Un motor que no informa no aparece, en
+ * lugar de dejar creer que la cifra de otro es la de todo el sistema.
+ *
+ * La cifra la publica el motor dentro de una ejecución, y no hay forma de preguntarla
+ * aparte. Cuando la medida es de hace rato, se dice de cuándo es en vez de enseñarla como
+ * si fuera de ahora mismo.
+ */
+function Consumo({ usos }: { usos: EngineUsage[] }) {
+  const conDato = usos.filter((u) => u.five_hour_util !== null);
+  if (conDato.length === 0) return null;
 
   return (
-    <div
-      className="consumo"
-      title={`Consumo de la suscripción de Claude${reinicio ? `. Se reinicia a las ${reinicio}` : ''}`}
-    >
-      <span>Cuota {porcentaje}%</span>
-      <span className="barra-consumo">
-        <span style={{ width: `${Math.min(100, porcentaje)}%` }} />
-      </span>
-    </div>
+    <>
+      {conDato.map((uso) => {
+        const porcentaje = Math.round((uso.five_hour_util ?? 0) * 100);
+        const medida = new Date(uso.updated_at);
+        const vieja = Date.now() - medida.getTime() > MEDIDA_VIEJA_MS;
+
+        const reinicio = uso.five_hour_resets
+          ? new Date(uso.five_hour_resets).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          : null;
+
+        const cuando = medida.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+        return (
+          <div
+            key={uso.engine}
+            className={`consumo${vieja ? ' vieja' : ''}`}
+            title={[
+              `Consumo de la suscripción de ${NOMBRE_MOTOR[uso.engine] ?? uso.engine}.`,
+              `Medido a las ${cuando}, en la última ejecución de ese motor.`,
+              reinicio ? `Se reinicia a las ${reinicio}.` : null,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            <span>
+              {NOMBRE_MOTOR[uso.engine] ?? uso.engine} {porcentaje}%
+            </span>
+            <span className="barra-consumo">
+              <span style={{ width: `${Math.min(100, porcentaje)}%` }} />
+            </span>
+          </div>
+        );
+      })}
+    </>
   );
 }

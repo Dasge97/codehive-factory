@@ -23,6 +23,11 @@ export interface EngineRunRequest {
   maxBudgetUsd?: number | null;
   /** Modo de permisos del motor. */
   permissionMode?: 'manual' | 'acceptEdits' | 'auto' | 'dontAsk' | 'bypassPermissions' | 'plan';
+  /**
+   * Si el motor se lanza con la configuración personal de quien arranca el sistema: su
+   * CLAUDE.md, sus hooks, sus ficheros de ajustes y sus servidores MCP. Por omisión no.
+   */
+  usePersonalConfig?: boolean;
 }
 
 /** Un paso del trabajo del agente, tal como lo publica el motor. */

@@ -6,6 +6,16 @@ No propongas cambios de estilo ni reescrituras que no arreglen un problema real.
 
 Cada hallazgo lleva: qué falla, qué impacto tiene, cómo reproducirlo y qué debe cumplirse para darlo por resuelto. Un hallazgo sin condición de resolución no sirve.
 
+## Pruebas
+
+Un cambio de comportamiento sin una prueba que lo cubra es un hallazgo de gravedad major. La condición para darlo por resuelto es que exista una prueba que falle si se deshace el cambio.
+
+Comprueba que la prueba comprueba algo. Una prueba que pasaría igual sin el cambio es un hallazgo major, con la misma condición de resolución.
+
+No abras hallazgo por falta de prueba cuando el cambio solo toca documentación, comentarios o textos visibles.
+
+## Gravedad
+
 Marca como blocker solo lo que impide integrar. Un exceso de bloqueos detiene el proyecto entero.
 
 Si el incremento cumple, devuelve la lista de hallazgos vacía. No inventes problemas para justificar la revisión.

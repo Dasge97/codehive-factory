@@ -17,7 +17,7 @@ import { newId } from '../shared/ids.js';
 import type { Agent, AgentRole } from '../shared/types.js';
 import type { Engine, EngineHandle } from '../engines/types.js';
 import type { EngineRegistry } from '../engines/registry.js';
-import { runTask } from './runner.js';
+import { runTask, saveUsage } from './runner.js';
 
 /** Una ejecución en marcha, con lo justo para poder pararla. */
 interface TrabajoActivo {
@@ -65,7 +65,7 @@ export class Supervisor {
   constructor(
     private readonly db: Db,
     private readonly bus: EventBus,
-    private readonly projectId: string,
+    private projectId: string,
     engineOrRegistry: Engine | EngineRegistry,
     private readonly options: SupervisorOptions = {},
   ) {
@@ -76,6 +76,26 @@ export class Supervisor {
       this.registry = null;
       this.engine = engineOrRegistry;
     }
+  }
+
+  /**
+   * Cambia el proyecto sobre el que se reparte trabajo.
+   *
+   * Lo que ya está en marcha sigue hasta terminar y se guarda donde corresponde: cada
+   * ejecución lleva su tarea, y su tarea lleva su proyecto. Lo único que cambia es de
+   * dónde salen las tareas nuevas.
+   */
+  abrirProyecto(projectId: string): void {
+    this.projectId = projectId;
+    // Un turno pedido para el proyecto anterior no se traslada al nuevo: el mensaje que lo
+    // provocó era de otra conversación.
+    this.turnoOrquestadorPendiente = false;
+    if (!this.parando) void this.tick();
+  }
+
+  /** Proyecto sobre el que se está repartiendo trabajo ahora mismo. */
+  proyectoAbierto(): string {
+    return this.projectId;
   }
 
   /** Motor con el que se ejecuta un agente. */
@@ -179,13 +199,16 @@ export class Supervisor {
   private async tick(): Promise<void> {
     if (this.parando) return;
 
-    const project = requireProject(this.db, this.projectId);
+    // El proyecto abierto puede cambiar mientras esto corre, así que se lee una vez y se
+    // usa el mismo hasta el final del ciclo.
+    const projectId = this.projectId;
+    const project = requireProject(this.db, projectId);
     if (project.status !== 'active') return;
 
     if (this.todosSinCuota()) return;
 
     // Antes de repartir trabajo nuevo se recupera el de los workers que se perdieron.
-    reclaimExpiredLeases(this.db, this.bus, this.projectId);
+    reclaimExpiredLeases(this.db, this.bus, projectId);
 
     if (this.turnoOrquestadorPendiente && !this.turnoOrquestador) {
       this.turnoOrquestadorPendiente = false;
@@ -197,15 +220,15 @@ export class Supervisor {
 
     if (this.activos.size >= project.max_concurrent_runs) return;
 
-    for (const agent of listAgents(this.db, this.projectId)) {
+    for (const agent of listAgents(this.db, projectId)) {
       if (agent.role === 'orchestrator' || !agent.enabled) continue;
       if (this.activos.size >= project.max_concurrent_runs) break;
       if (this.ocupadosDe(agent.id) >= agent.max_workers) continue;
-      if (queueForRole(this.db, this.projectId, agent.role).length === 0) continue;
+      if (queueForRole(this.db, projectId, agent.role).length === 0) continue;
       // Un agente cuyo motor se quedó sin cuota espera; los demás siguen trabajando.
       if (this.sinCuota(agent.engine)) continue;
 
-      this.arrancarWorker(agent);
+      this.arrancarWorker(projectId, agent);
     }
   }
 
@@ -231,14 +254,14 @@ export class Supervisor {
     return this.motores().every((m) => this.sinCuota(m.name));
   }
 
-  private arrancarWorker(agent: Agent): void {
+  private arrancarWorker(projectId: string, agent: Agent): void {
     let motor: Engine;
     try {
       motor = this.motorDe(agent);
     } catch (e) {
       // El agente está configurado con un motor que no está instalado.
       appendEvent(this.db, this.bus, {
-        project_id: this.projectId,
+        project_id: projectId,
         type: 'quota.exhausted',
         agent_id: agent.id,
         payload: { engine: agent.engine, reason: e instanceof Error ? e.message : String(e) },
@@ -247,7 +270,7 @@ export class Supervisor {
     }
 
     const workerId = newId('worker');
-    const claim = claimNext(this.db, this.bus, this.projectId, agent.role, {
+    const claim = claimNext(this.db, this.bus, projectId, agent.role, {
       agent_id: agent.id,
       worker_id: workerId,
       engine: motor.name,
@@ -272,7 +295,7 @@ export class Supervisor {
       .then(() => undefined)
       .catch((e) => {
         appendEvent(this.db, this.bus, {
-          project_id: this.projectId,
+          project_id: projectId,
           type: 'run.finished',
           task_id: trabajo.task_id,
           run_id: trabajo.run_id,
@@ -291,16 +314,20 @@ export class Supervisor {
    * mensaje del creador, y aplica el plan que devuelve.
    */
   private async runOrchestratorTurn(): Promise<void> {
-    const agent = listAgents(this.db, this.projectId).find((a) => a.role === 'orchestrator' && a.enabled);
+    // Se fija el proyecto al empezar el turno. Si el creador abre otra carpeta mientras el
+    // orquestador piensa, su plan se aplica al proyecto que lo pidió y no al nuevo.
+    const projectId = this.projectId;
+
+    const agent = listAgents(this.db, projectId).find((a) => a.role === 'orchestrator' && a.enabled);
     if (!agent) return;
 
     try {
-      const snapshot = projectSnapshot(this.db, this.projectId);
+      const snapshot = projectSnapshot(this.db, projectId);
       const ultimo = [...snapshot.chat].reverse().find((m) => m.author === 'creator');
       const prompt = renderOrchestratorPrompt(snapshot, ultimo?.body ?? 'Revisa el estado y decide qué hace falta.');
 
       appendEvent(this.db, this.bus, {
-        project_id: this.projectId,
+        project_id: projectId,
         type: 'run.started',
         agent_id: agent.id,
         payload: { role: 'orchestrator', engine: this.motorDe(agent).name },
@@ -308,20 +335,21 @@ export class Supervisor {
 
       const handle = this.motorDe(agent).start({
         prompt,
-        cwd: requireProject(this.db, this.projectId).repo_path,
+        cwd: requireProject(this.db, projectId).repo_path,
         // El orquestador no escribe código. Solo puede mirar para entender el proyecto.
         allowedTools: agentTools(agent),
-        timeoutMs: requireProject(this.db, this.projectId).run_timeout_ms,
+        timeoutMs: requireProject(this.db, projectId).run_timeout_ms,
         model: agent.model,
         resultSchema: ORCHESTRATOR_PLAN_JSON_SCHEMA,
         systemPromptAppend: instructionsFor(agent.role),
         permissionMode: 'manual',
+        usePersonalConfig: requireProject(this.db, projectId).use_personal_config === 1,
       },
       // El orquestador publica lo que va haciendo, igual que los demás agentes. Sin esto,
       // el creador solo ve un mensaje fijo mientras espera.
       (progreso) => {
         appendEvent(this.db, this.bus, {
-          project_id: this.projectId,
+          project_id: projectId,
           type: 'run.progress',
           agent_id: agent.id,
           payload: {
@@ -337,11 +365,16 @@ export class Supervisor {
       const outcome = await handle.wait();
       this.handleOrquestador = null;
 
+      // El turno del orquestador también consume cuota, y el motor la informa igual que en
+      // cualquier otra ejecución. Es lo que mantiene la cifra al día: se habla con el
+      // orquestador mucho más a menudo de lo que terminan las tareas.
+      saveUsage(this.db, this.bus, this.motorDe(agent).name, outcome);
+
       if (outcome.status === 'cancelled') {
         postChatMessage(
           this.db,
           this.bus,
-          this.projectId,
+          projectId,
           'orchestrator',
           'He parado a mitad, así que no he creado ninguna tarea. Dime qué quieres cambiar.',
         );
@@ -352,7 +385,7 @@ export class Supervisor {
         postChatMessage(
           this.db,
           this.bus,
-          this.projectId,
+          projectId,
           'orchestrator',
           `No he podido preparar el plan: ${outcome.error ?? 'el motor no devolvió nada'}.`,
         );
@@ -364,17 +397,17 @@ export class Supervisor {
         postChatMessage(
           this.db,
           this.bus,
-          this.projectId,
+          projectId,
           'orchestrator',
           'He preparado un plan que no cumple el formato acordado. Vuelve a pedírmelo, por favor.',
         );
         return;
       }
 
-      const resultado = applyPlan(this.db, this.bus, this.projectId, validado.data);
+      const resultado = applyPlan(this.db, this.bus, projectId, validado.data);
 
       appendEvent(this.db, this.bus, {
-        project_id: this.projectId,
+        project_id: projectId,
         type: 'run.finished',
         agent_id: agent.id,
         payload: {
@@ -389,7 +422,7 @@ export class Supervisor {
         postChatMessage(
           this.db,
           this.bus,
-          this.projectId,
+          projectId,
           'orchestrator',
           `Parte del plan no se pudo aplicar:\n${resultado.errors.map((e) => `- ${e}`).join('\n')}`,
         );
@@ -398,7 +431,7 @@ export class Supervisor {
       postChatMessage(
         this.db,
         this.bus,
-        this.projectId,
+        projectId,
         'orchestrator',
         `Ha fallado mi turno: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -413,14 +446,25 @@ export class Supervisor {
  * existen. Se marcan como interrumpidas con su motivo y sus tareas vuelven a estar listas
  * (documento 07, apartado 7.11).
  */
-export function recoverInterruptedRuns(db: Db, bus: EventBus, projectId: string): number {
-  const colgadas = db
+export function recoverInterruptedRuns(
+  db: Db,
+  bus: EventBus,
+  projectId: string,
+  /**
+   * Ejecuciones que siguen vivas en este proceso. Al abrir de nuevo una carpeta que se
+   * dejó a medias, sus workers pueden seguir trabajando, y darlos por interrumpidos
+   * tiraría el trabajo de alguien que está vivo.
+   */
+  enMarcha: ReadonlySet<string> = new Set(),
+): number {
+  const colgadas = (db
     .prepare(
       `SELECT r.id, r.task_id FROM runs r
        JOIN tasks t ON t.id = r.task_id
        WHERE t.project_id = ? AND r.status = 'running'`,
     )
-    .all(projectId) as Array<{ id: string; task_id: string }>;
+    .all(projectId) as Array<{ id: string; task_id: string }>)
+    .filter((run) => !enMarcha.has(run.id));
 
   for (const run of colgadas) {
     db.prepare(

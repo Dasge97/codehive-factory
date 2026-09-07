@@ -46,7 +46,9 @@ export const ROLE_DEFAULTS: Record<AgentRole, RoleDefaults> = {
 
   builder: {
     name: 'Builder',
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+    // TodoWrite es la lista de pasos que el motor lleva por dentro. Sin ella, un trabajo
+    // de muchos pasos se le olvida a la mitad.
+    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'TodoWrite'],
   },
 
   reviewer: {
@@ -57,12 +59,14 @@ export const ROLE_DEFAULTS: Record<AgentRole, RoleDefaults> = {
 
   researcher: {
     name: 'Investigador',
-    tools: ['Read', 'Glob', 'Grep', 'Bash'],
+    // Es el único rol que puede salir a internet. Una pregunta sobre una biblioteca de
+    // terceros no se responde leyendo el repositorio.
+    tools: ['Read', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'],
   },
 
   refactorer: {
     name: 'Refactorer',
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'TodoWrite'],
   },
 };
 
@@ -127,3 +131,32 @@ export const ENGINE_POR_ROL: Record<AgentRole, EngineName> = {
   // lo mira alguien que no lo ha escrito.
   refactorer: 'codex',
 };
+
+/**
+ * Modelo con el que se ejecuta cada rol en Claude Code.
+ *
+ * Se escribe aquí a propósito. Sin un modelo explícito, el motor coge el que tenga
+ * configurado en sus ajustes la persona que arranca el sistema, y el mismo proyecto se
+ * comporta distinto según en qué equipo se levante.
+ *
+ * Se usan alias y no identificadores completos: un alias apunta siempre al último modelo
+ * de esa familia, mientras que un identificador escrito a mano queda desfasado sin avisar.
+ */
+export const MODELO_POR_ROL: Record<AgentRole, string> = {
+  orchestrator: 'opus',
+  builder: 'opus',
+  reviewer: 'opus',
+  // Buscar y leer no necesita el modelo más caro.
+  researcher: 'sonnet',
+  refactorer: 'sonnet',
+};
+
+/**
+ * Modelo con el que arranca un agente, según su rol y su motor.
+ *
+ * Con Codex no se fija ninguno. Sus modelos los nombra su propio ejecutable, y una lista
+ * escrita aquí dejaría de valer en cuanto Codex cambiara los suyos.
+ */
+export function modeloPara(role: AgentRole, engine: EngineName): string | null {
+  return engine === 'claude_code' ? MODELO_POR_ROL[role] : null;
+}
