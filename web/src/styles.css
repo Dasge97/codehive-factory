@@ -172,50 +172,61 @@ button {
 }
 
 /*
- * Rejilla fija de tres columnas por dos filas.
+ * Colocación de los cinco paneles: tres columnas por dos filas.
  *
  * El orquestador vive en la columna del medio y la ocupa entera, de arriba abajo: es con
- * quien hablas, así que es lo principal de la pantalla. Los otros cuatro agentes se
- * reparten las columnas de los lados, dos en cada una.
+ * quien hablas, así que es lo principal de la pantalla. Los otros cuatro se reparten las
+ * columnas de los lados, dos en cada una.
+ *
+ * No se usa una rejilla sino posición absoluta con porcentajes. La razón es el foco: al
+ * enfocar un panel se cambian sus porcentajes, así que el panel **cambia de tamaño de
+ * verdad** y su contenido se recoloca dentro. Con una rejilla habría que agrandarlo con
+ * `transform`, y entonces la letra crecería con el panel y se vería lo mismo pero más
+ * grande, que no es lo que se busca.
+ *
+ * Los porcentajes salen de repartir el ancho en tres columnas de 1, 1.2 y 1: la del medio
+ * ocupa el 37.5% y las de los lados el 31.25% cada una.
  */
 .cuerpo {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 14px;
+  position: relative;
   padding: 14px 16px 16px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-/* El chat es el panel del orquestador: columna del medio, las dos filas. */
-.cuerpo > .agente-panel.chat {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-}
-
-/*
- * Los agentes se colocan solos alrededor. Los dos primeros a la izquierda y los dos
- * siguientes a la derecha, en el orden en que llegan.
- */
-.cuerpo > .agente-panel:not(.chat):nth-of-type(2) { grid-column: 1; grid-row: 1; transform-origin: top left; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(3) { grid-column: 1; grid-row: 2; transform-origin: bottom left; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(4) { grid-column: 3; grid-row: 1; transform-origin: top right; }
-.cuerpo > .agente-panel:not(.chat):nth-of-type(5) { grid-column: 3; grid-row: 2; transform-origin: bottom right; }
-
-/*
- * El panel que pulsas se pone delante y crece un poco; los demás se quedan atenuados
- * detrás. Es para poder leer o escribir en uno sin que el resto compita por la atención.
- *
- * El crecimiento es un `transform`, así que no mueve a los vecinos de sitio: se les monta
- * encima aprovechando el hueco entre celdas.
- */
 .cuerpo > .agente-panel {
+  position: absolute;
+  /* El margen es lo que deja el hueco entre paneles, porque no hay rejilla que lo ponga. */
+  margin: 7px;
   min-height: 0;
-  transition: opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  transition:
+    inset 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 160ms ease,
+    box-shadow 200ms ease;
 }
 
+/* El chat es el panel del orquestador: columna del medio, de arriba abajo. */
+.cuerpo > .agente-panel.chat {
+  inset: 0 31.25%;
+}
+
+/* Los demás, en el orden en que llegan: dos a la izquierda y dos a la derecha. */
+.cuerpo > .agente-panel:not(.chat):nth-of-type(2) { inset: 0 68.75% 50% 0; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(3) { inset: 50% 68.75% 0 0; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(4) { inset: 0 0 50% 68.75%; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(5) { inset: 50% 0 0 68.75%; }
+
+/*
+ * El panel que pulsas se pone delante y crece; los demás se quedan atenuados detrás.
+ *
+ * Crece hasta el 62% del ancho y el 80% del alto de la pantalla, lo bastante para leer con
+ * comodidad lo que va haciendo el agente. Como es un cambio de tamaño real, la letra sigue
+ * midiendo lo mismo y lo que se gana es sitio: cabe más texto y las líneas se parten menos.
+ *
+ * Cada uno crece hacia dentro desde su esquina, para no salirse por el borde. El
+ * orquestador, que está en el medio, crece hacia los dos lados por igual.
+ */
 .cuerpo.con-foco > .agente-panel {
   opacity: 0.42;
 }
@@ -226,32 +237,17 @@ button {
   box-shadow: 0 18px 46px rgb(0 0 0 / 32%);
 }
 
-/*
- * Los agentes de los lados crecen mucho al enfocarlos, hasta pasar del 60% del ancho de
- * la pantalla. Su sitio en la rejilla es pequeño y el texto de dentro no se lee sin
- * agrandarlo. Tapan parte de los demás, que es lo que se busca.
- *
- * Crecen desde su esquina, no desde el centro, para no salirse por el borde. La esquina
- * de cada uno va con su colocación en la rejilla, más abajo.
- */
-.cuerpo > .agente-panel:not(.chat).enfocado {
-  transform: scale(1.95);
-}
+.cuerpo > .agente-panel.chat.enfocado { inset: 0 19%; }
 
-/* El orquestador ya ocupa la columna del medio entera, así que solo se marca. */
-.cuerpo > .agente-panel.chat.enfocado {
-  transform: scale(1.015);
-}
+.cuerpo > .agente-panel:not(.chat):nth-of-type(2).enfocado { inset: 0 38% 20% 0; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(3).enfocado { inset: 20% 38% 0 0; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(4).enfocado { inset: 0 0 20% 38%; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(5).enfocado { inset: 20% 0 0 38%; }
 
+/* Sin movimiento, el panel enfocado cambia de tamaño al momento en vez de deslizarse. */
 @media (prefers-reduced-motion: reduce) {
   .cuerpo > .agente-panel {
     transition: none;
-  }
-
-  .cuerpo > .agente-panel.enfocado,
-  .cuerpo > .agente-panel:not(.chat).enfocado,
-  .cuerpo > .agente-panel.chat.enfocado {
-    transform: none;
   }
 }
 
@@ -1282,26 +1278,31 @@ details > summary {
 
 @media (max-width: 1280px) {
   .cuerpo {
-    gap: 10px;
     padding: 10px 12px 12px;
+  }
+
+  .cuerpo > .agente-panel {
+    margin: 5px;
   }
 }
 
 @media (max-width: 1000px) {
-  /* En pantalla estrecha no hay rejilla: los paneles van uno debajo de otro. */
+  /* En pantalla estrecha los paneles van uno debajo de otro, sin colocación fija. */
   .cuerpo {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    grid-auto-rows: auto;
-    padding: 12px;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
+    padding: 12px;
     overflow-y: auto;
   }
 
   .cuerpo > .agente-panel,
-  .cuerpo > .agente-panel.chat {
-    grid-column: auto;
-    grid-row: auto;
+  .cuerpo > .agente-panel.chat,
+  .cuerpo > .agente-panel.enfocado,
+  .cuerpo > .agente-panel.chat.enfocado {
+    position: static;
+    inset: auto;
+    margin: 0;
   }
 
   /* En pantalla estrecha se ve una sección cada vez. */
@@ -1312,18 +1313,13 @@ details > summary {
 
   /* Apilados, cada panel guarda su altura en vez de repartirse la pantalla. */
   .cuerpo > .agente-panel {
+    flex: 0 0 auto;
     min-height: 240px;
   }
 
   /* Con los paneles uno debajo de otro, agrandar el enfocado solo estorba. */
   .cuerpo.con-foco > .agente-panel {
     opacity: 1;
-  }
-
-  .cuerpo > .agente-panel.enfocado,
-  .cuerpo > .agente-panel:not(.chat).enfocado,
-  .cuerpo > .agente-panel.chat.enfocado {
-    transform: none;
   }
 
   .nav-movil {
