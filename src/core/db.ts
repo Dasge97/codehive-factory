@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { MIGRATIONS } from './migrations.js';
+import { MIGRATIONS, type Migration } from './migrations.js';
 
 export type Db = Database.Database;
 
@@ -60,11 +60,39 @@ export function applyMigrations(db: Db): number[] {
       );
     });
 
-    aplicar();
+    if (migration.sinClavesForaneas) aplicarSinClavesForaneas(db, migration, aplicar);
+    else aplicar();
+
     nuevas.push(migration.version);
   }
 
   return nuevas;
+}
+
+/**
+ * Aplica una migración que recrea una tabla, con las claves foráneas desactivadas.
+ *
+ * La desactivación va fuera de la transacción porque dentro SQLite ignora el pragma en
+ * silencio. Al terminar se comprueba que no ha quedado ninguna referencia rota: si la
+ * migración ha dejado la base inconsistente, es mejor no arrancar que arrancar con datos
+ * huérfanos.
+ */
+function aplicarSinClavesForaneas(db: Db, migration: Migration, aplicar: () => void): void {
+  const estaban = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  try {
+    aplicar();
+
+    const rotas = db.pragma('foreign_key_check') as unknown[];
+    if (rotas.length > 0) {
+      throw new Error(
+        `La migración ${migration.version} (${migration.name}) ha dejado ${rotas.length} referencias rotas.`,
+      );
+    }
+  } finally {
+    if (estaban) db.pragma('foreign_keys = ON');
+  }
 }
 
 /**

@@ -28,6 +28,7 @@ export const COLOR_ROL: Record<AgentView['role'], string> = {
   builder: 'builder',
   reviewer: 'reviewer',
   researcher: 'investigador',
+  refactorer: 'refactorer',
 };
 
 const NOMBRE_ROL: Record<AgentView['role'], string> = {
@@ -35,6 +36,7 @@ const NOMBRE_ROL: Record<AgentView['role'], string> = {
   builder: 'Construcción',
   reviewer: 'Revisión',
   researcher: 'Investigación',
+  refactorer: 'Limpieza',
 };
 
 /** Un paso del trabajo de un agente, sacado de los eventos que publica el motor. */

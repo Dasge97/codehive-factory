@@ -1,8 +1,13 @@
 # 06 · Roles
 
-Cuatro roles en la fase 1, un agente por rol, un worker por agente (decisión D15). El
-texto de cada apartado «Instrucciones» es la base de lo que se guarda en el campo
-`instructions` de la tabla `agents`.
+Cinco roles, un agente por rol, un worker por agente (decisiones D15 y D41).
+
+El texto que recibe cada agente **no está en este documento ni en el código**: vive en la
+carpeta `instrucciones/` (decisión D42). Este documento explica qué hace cada rol y por
+qué; los ficheros de esa carpeta son lo que el agente lee de verdad.
+
+- `instrucciones/comunes/` — las reglas que valen para todos.
+- `instrucciones/roles/<rol>.md` — lo propio de cada rol.
 
 ## 6.1 Orquestador
 
@@ -121,7 +126,25 @@ Inspecciona código existente. Prepara la evidencia que necesita otro agente par
 > No modifiques ficheros del proyecto. Tu salida es el resumen y, si hace falta, un
 > documento en la carpeta de documentación.
 
-## 6.5 Límites comunes a todos los roles
+## 6.5 Refactorer
+
+**Qué hace.** Mejora código que ya funciona, sin cambiar lo que hace. Nombres, duplicación,
+funciones que mezclan responsabilidades, comentarios obsoletos y código muerto.
+
+**Sobre qué trabaja.** Un commit que el reviewer ya ha aprobado.
+
+**Cómo demuestra que no ha cambiado nada.** Ejecuta la verificación del proyecto antes de
+tocar nada y otra vez al terminar. Si no pasaba antes, no hace el refactor. Si el proyecto
+no tiene comando de verificación, tampoco: sin forma de comprobarlo, cualquier cambio es
+una apuesta.
+
+**Qué no es suyo.** Los límites entre módulos y la dirección de las dependencias. Añadir o
+cambiar comportamiento. Arreglar fallos. Tocar los ficheros de prueba para que pasen.
+
+**Cuándo entra.** Solo en modo estricto (decisión D39). Una tarea de refactor no genera
+otra.
+
+## 6.6 Límites comunes a todos los roles
 
 Se aplican en la configuración de herramientas del motor, no solo en las instrucciones.
 
@@ -135,7 +158,10 @@ Si un motor no permite restringir alguna de estas acciones, la restricción se a
 el worker antes de lanzar el motor y se registra en el documento de capacidades del
 adaptador.
 
-## 6.6 Ampliación futura
+## 6.7 Ampliación futura
 
-Pruebas, documentación y limpieza de código se asignan como tareas al builder. Se crean
-roles nuevos solo cuando el volumen de ese trabajo lo justifique, no antes.
+Pruebas y documentación se asignan como tareas al builder. Se crean roles nuevos solo
+cuando el volumen de ese trabajo lo justifique, no antes.
+
+El architect, que decide los límites entre módulos y la dirección de las dependencias, se
+estudió y se dejó fuera por ahora (decisión D41).

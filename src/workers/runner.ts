@@ -5,6 +5,7 @@ import type { Db } from '../core/db.js';
 import { EventBus, appendEvent } from '../core/events.js';
 import { buildAssignment, renderAssignment } from '../core/assignment.js';
 import { agentTools, requireProject } from '../core/projects.js';
+import { instructionsFor } from '../core/roles.js';
 import { openFindings, publishIncrement } from '../core/review.js';
 import { markNoticesDelivered, requireTask, setStatus } from '../core/tasks.js';
 import { isRunCurrent, recordStaleResult, releaseLease } from '../core/leases.js';
@@ -34,7 +35,7 @@ export function branchForTask(taskId: string): string {
 }
 
 /** Tipos de tarea que escriben código y por tanto necesitan su propio espacio aislado. */
-const ESCRIBEN_CODIGO = new Set(['build', 'fix']);
+const ESCRIBEN_CODIGO = new Set(['build', 'fix', 'refactor']);
 
 /** Tipos de tarea que pueden pedir apoyo a otro rol. */
 const PIDEN_APOYO = new Set(['build', 'fix']);
@@ -84,7 +85,7 @@ export async function runTask(
       timeoutMs: project.run_timeout_ms,
       model: agent.model,
       resultSchema: AGENT_RESULT_JSON_SCHEMA,
-      systemPromptAppend: agent.instructions,
+      systemPromptAppend: instructionsFor(agent.role),
       sessionId: run.engine_session_id ?? undefined,
       resumeSessionId: previousSessionId(db, task.id),
       // Dentro de su worktree el agente trabaja sin pedir permiso a cada paso. Lo que
@@ -368,6 +369,8 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
     branch: task.branch ?? branchForTask(task.id),
     message: commit.message,
     files: ficheros,
+    // Con el resultado del agente, publishIncrement puede decidir si hace falta revisión.
+    result,
   });
 
   return publicado.increment.id;
@@ -517,6 +520,18 @@ function finishRun(db: Db, bus: EventBus, input: FinishRunInput): void {
   decideTaskStatus(db, bus, { ...input, estadoRun, fallo });
 }
 
+/** Si esta tarea tiene una revisión pendiente de terminar. */
+function tieneRevisionAbierta(db: Db, taskId: string): boolean {
+  const fila = db
+    .prepare(
+      `SELECT 1 AS hay FROM tasks
+       WHERE parent_task_id = ? AND kind = 'review' AND status NOT IN ('done','cancelled')
+       LIMIT 1`,
+    )
+    .get(taskId) as { hay: number } | undefined;
+  return fila !== undefined;
+}
+
 function decideTaskStatus(
   db: Db,
   bus: EventBus,
@@ -583,8 +598,14 @@ function decideTaskStatus(
       return;
 
     case 'completed':
-      // Una tarea que ha publicado código espera revisión. Las demás quedan hechas.
-      if (ESCRIBEN_CODIGO.has(task.kind) && requireTask(db, task.id).head_commit) {
+      // Una tarea que ha publicado código espera revisión, pero solo si se le ha abierto
+      // una. En modo normal el orquestador puede haber marcado que no hace falta, y
+      // entonces la tarea queda hecha en cuanto publica.
+      if (
+        ESCRIBEN_CODIGO.has(task.kind) &&
+        requireTask(db, task.id).head_commit &&
+        tieneRevisionAbierta(db, task.id)
+      ) {
         setStatus(db, bus, task.id, 'in_review', 'incremento publicado, pendiente de revisión');
       } else {
         setStatus(db, bus, task.id, 'done', result.summary);

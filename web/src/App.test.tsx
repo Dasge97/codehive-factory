@@ -14,6 +14,7 @@ let mensajes: Array<Record<string, unknown>>;
 let autorizaciones: Array<Record<string, unknown>>;
 let consumo: Array<Record<string, unknown>>;
 let estadoProyecto: string;
+let modoProyecto: 'normal' | 'strict';
 let motoresInstalados: Array<Record<string, unknown>>;
 let motoresAusentes: Array<Record<string, unknown>>;
 let orquestadorTrabajando: boolean;
@@ -61,7 +62,7 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
         id: PROYECTO, name: 'Code Hive Factory', goal: 'Tener el área de proyectos',
         repo_path: '/proyecto', main_branch: 'main', verify_command: 'npm test',
         install_command: 'npm ci', max_concurrent_runs: 3, max_task_attempts: 3,
-        status: estadoProyecto,
+        status: estadoProyecto, mode: modoProyecto,
       },
       snapshot: { goal: 'Tener el área de proyectos', decisions: [], pending_approvals: autorizaciones },
       integrable: [],
@@ -105,6 +106,11 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
   if (ruta.endsWith('/pause')) {
     estadoProyecto = (cuerpo as { paused: boolean }).paused ? 'paused' : 'active';
     return respuesta({ status: estadoProyecto });
+  }
+
+  if (ruta.endsWith(`/projects/${PROYECTO}/mode`)) {
+    modoProyecto = (cuerpo as { mode: 'normal' | 'strict' }).mode;
+    return respuesta({ mode: modoProyecto });
   }
 
   if (ruta.startsWith('/api/agents/')) return respuesta({ ok: true });
@@ -161,6 +167,7 @@ beforeEach(() => {
   autorizaciones = [];
   consumo = [];
   estadoProyecto = 'active';
+  modoProyecto = 'normal';
   motoresInstalados = [
     {
       name: 'claude_code',
@@ -277,6 +284,30 @@ describe('pantalla principal', () => {
     expect(screen.getByText(/Revisión · codex/)).toBeDefined();
   });
 
+});
+
+describe('modo de trabajo', () => {
+  it('se ve en qué modo está el proyecto', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Normal' })).toBeDefined());
+
+    expect(screen.getByRole('button', { name: 'Normal' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Estricto' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('cambiar a modo estricto llega al servidor y se ve puesto', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Estricto' })).toBeDefined());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Estricto' }));
+
+    const peticion = peticiones.find((p) => p.ruta.endsWith('/mode'));
+    expect(peticion?.cuerpo).toEqual({ mode: 'strict' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Estricto' }).getAttribute('aria-pressed')).toBe('true'),
+    );
+  });
 });
 
 describe('foco en un agente', () => {

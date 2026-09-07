@@ -12,6 +12,7 @@ import {
   setAgentEnabled,
   setAgentEngine,
   setAgentWorkers,
+  setProjectMode,
   setProjectStatus,
   updateProject,
 } from '../core/projects.js';
@@ -19,7 +20,15 @@ import { queueForRole, razonDeEspera } from '../core/queue.js';
 import { listFindings, listIncrements, readyToIntegrate } from '../core/review.js';
 import { RuleError, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
 import { now } from '../shared/ids.js';
-import { ENGINES, type Approval, type EngineName, type Run, type Task } from '../shared/types.js';
+import {
+  ENGINES,
+  PROJECT_MODES,
+  type Approval,
+  type EngineName,
+  type ProjectMode,
+  type Run,
+  type Task,
+} from '../shared/types.js';
 import type { Supervisor } from '../workers/supervisor.js';
 import type { EngineRegistry } from '../engines/registry.js';
 
@@ -143,6 +152,18 @@ export function createApi({ db, bus, supervisor, engines, webDir }: ApiDeps): Ex
     // las tareas se quedan donde están.
     const pausar = req.body?.paused !== false;
     res.json(setProjectStatus(db, param(req, 'id'), pausar ? 'paused' : 'active'));
+  });
+
+  app.post('/api/projects/:id/mode', (req, res) => {
+    const mode = String(req.body?.mode ?? '');
+    if (!(PROJECT_MODES as readonly string[]).includes(mode)) {
+      res.status(400).json({ error: `El modo debe ser uno de: ${PROJECT_MODES.join(', ')}.` });
+      return;
+    }
+
+    // El cambio vale para las tareas que se creen desde ahora. Las que ya están en marcha
+    // terminan con las reglas con las que empezaron.
+    res.json(setProjectMode(db, param(req, 'id'), mode as ProjectMode));
   });
 
   app.post('/api/projects/:id/orchestrator/stop', (_req, res) => {

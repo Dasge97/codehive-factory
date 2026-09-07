@@ -5,15 +5,71 @@ import { requireProject } from './projects.js';
 import { RuleError, addNotice, createTask, requireTask, setStatusInternal } from './tasks.js';
 import { newId, now } from '../shared/ids.js';
 import type {
+  AgentResult,
   Finding,
   FindingInput,
   Increment,
+  Project,
   SystemEvent,
   Task,
 } from '../shared/types.js';
 
 /** Prioridad con la que entra una corrección, según lo grave que sea el hallazgo. */
 const PRIORIDAD_POR_GRAVEDAD = { blocker: 5, major: 20, minor: 60 } as const;
+
+/** Tipos de tarea que escriben código y que, por tanto, pueden pasar por el refactorer. */
+const ESCRIBEN_CODIGO = new Set(['build', 'fix']);
+
+/**
+ * Decide si el incremento de una tarea tiene que pasar por el reviewer.
+ *
+ * Son dos reglas superpuestas. El orquestador marca cada tarea al crearla, y por encima
+ * de su decisión hay un suelo que el sistema aplica siempre: si la verificación del
+ * proyecto no pasó, si el proyecto no tiene con qué verificarse, o si el agente terminó
+ * a medias, se revisa aunque el orquestador dijera que no hacía falta.
+ *
+ * El suelo es lo que hace que equivocarse marcando una tarea no pueda dejar pasar código
+ * roto.
+ */
+export function necesitaRevision(
+  project: Project,
+  task: Task,
+  result: AgentResult | null,
+): { revisar: boolean; motivo: string } {
+  if (project.mode === 'strict') {
+    return { revisar: true, motivo: 'el proyecto está en modo estricto' };
+  }
+
+  if (task.needs_review !== 0) {
+    return { revisar: true, motivo: 'la tarea está marcada para revisar' };
+  }
+
+  if (!result) {
+    return { revisar: true, motivo: 'la ejecución no devolvió un resultado que comprobar' };
+  }
+
+  if (!project.verify_command) {
+    return { revisar: true, motivo: 'el proyecto no tiene comando de verificación' };
+  }
+
+  const verificacion = result.verification;
+  if (!verificacion?.ran) {
+    return { revisar: true, motivo: 'la verificación del proyecto no se ejecutó' };
+  }
+  if (verificacion.passed !== true) {
+    return { revisar: true, motivo: 'la verificación del proyecto no pasó' };
+  }
+
+  if (result.outcome !== 'completed') {
+    return { revisar: true, motivo: `el agente terminó con ${result.outcome}` };
+  }
+
+  if ((result.needs?.length ?? 0) > 0) {
+    return { revisar: true, motivo: 'el agente necesitó algo fuera de su alcance' };
+  }
+
+  return { revisar: false, motivo: 'cambio verificado y sin nada pendiente' };
+}
 
 export interface PublishIncrementInput {
   task_id: string;
@@ -22,6 +78,8 @@ export interface PublishIncrementInput {
   branch: string;
   message: string;
   files: string[];
+  /** Lo que devolvió el agente, para poder aplicar el suelo de revisión. */
+  result?: AgentResult | null;
 }
 
 export interface PublishIncrementResult {
@@ -96,6 +154,20 @@ export function publishIncrement(
   const task = requireTask(db, input.task_id);
   if (task.kind === 'review') return resultado;
 
+  const decision = necesitaRevision(requireProject(db, task.project_id), task, input.result ?? null);
+  if (!decision.revisar) {
+    publishEvents(bus, [
+      insertEvent(db, {
+        project_id: task.project_id,
+        type: 'review.skipped',
+        task_id: task.id,
+        run_id: input.run_id,
+        payload: { increment_id: resultado.increment.id, reason: decision.motivo },
+      }),
+    ]);
+    return resultado;
+  }
+
   const reviewTask = createReviewTask(db, bus, task, resultado.increment);
   return { increment: resultado.increment, review_task: reviewTask };
 }
@@ -131,6 +203,8 @@ export interface OpenFindingsResult {
   findings: Finding[];
   fix_tasks: Task[];
   blocking: boolean;
+  /** La tarea de limpieza que abre el modo estricto cuando la revisión aprueba. */
+  refactor_task: Task | null;
 }
 
 /**
@@ -243,7 +317,52 @@ export function openFindings(db: Db, bus: EventBus, input: OpenFindingsInput): O
   });
 
   publishEvents(bus, [...eventos, ...eventosEstado]);
-  return { findings: creados, fix_tasks: correcciones, blocking };
+
+  // En modo estricto, el trabajo aprobado sigue camino hacia el refactorer. La cadena no
+  // se puede encadenar sola: un refactor aprobado no abre otro refactor.
+  const refactor =
+    creados.length === 0 ? crearRefactorSiProcede(db, bus, sourceTask, input.increment_id) : null;
+
+  return { findings: creados, fix_tasks: correcciones, blocking, refactor_task: refactor };
+}
+
+/**
+ * Abre la tarea con la que el refactorer limpia un trabajo ya revisado y aprobado.
+ *
+ * Solo ocurre en modo estricto, y solo sobre trabajo que escribió código. Una tarea de
+ * refactor no genera otra, porque si no la cadena no pararía nunca.
+ */
+function crearRefactorSiProcede(
+  db: Db,
+  bus: EventBus,
+  sourceTask: Task,
+  incrementId: string,
+): Task | null {
+  const project = requireProject(db, sourceTask.project_id);
+  if (project.mode !== 'strict') return null;
+  if (!ESCRIBEN_CODIGO.has(sourceTask.kind)) return null;
+
+  const increment = db.prepare('SELECT * FROM increments WHERE id = ?').get(incrementId) as
+    | Increment
+    | undefined;
+  if (!increment) return null;
+
+  return createTask(db, bus, {
+    project_id: sourceTask.project_id,
+    parent_task_id: sourceTask.id,
+    kind: 'refactor',
+    title: `Limpiar: ${sourceTask.title}`,
+    goal: `Mejorar el código del commit ${increment.commit_sha.slice(0, 8)} sin cambiar lo que hace: nombres, duplicación, funciones que mezclan cosas, comentarios obsoletos y código muerto.`,
+    scope:
+      'Solo lo que tocó el trabajo revisado. No añadas comportamiento nuevo ni cambies el existente. No toques los ficheros de prueba para que pasen.',
+    acceptance:
+      'La verificación del proyecto pasa igual que antes del cambio, y el comportamiento observable es el mismo.',
+    required_role: 'refactorer',
+    priority: Math.min(99, sourceTask.priority + 10),
+    created_by: 'system',
+    branch: increment.branch,
+    base_commit: increment.commit_sha,
+  });
 }
 
 /**

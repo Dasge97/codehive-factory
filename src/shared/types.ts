@@ -4,14 +4,33 @@ import { z } from 'zod';
 // Enumeraciones del dominio. Los valores coinciden con los del documento 04.
 // ---------------------------------------------------------------------------
 
-export const AGENT_ROLES = ['orchestrator', 'builder', 'reviewer', 'researcher'] as const;
+export const AGENT_ROLES = [
+  'orchestrator',
+  'builder',
+  'reviewer',
+  'researcher',
+  'refactorer',
+] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
 export const ENGINES = ['claude_code', 'codex'] as const;
 export type EngineName = (typeof ENGINES)[number];
 
-export const TASK_KINDS = ['build', 'review', 'fix', 'research', 'integrate'] as const;
+export const TASK_KINDS = ['build', 'review', 'fix', 'research', 'integrate', 'refactor'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
+
+/**
+ * Modo de trabajo del proyecto.
+ *
+ * En `normal` el orquestador decide qué necesita revisión, y el sistema impone un suelo
+ * que no puede saltarse. En `strict` se recorre la cadena entera: todo lo que deja un
+ * commit se revisa, y después pasa por el refactorer.
+ *
+ * El modo se graba en la tarea al crearla. Cambiar de modo no afecta a lo que ya está en
+ * marcha.
+ */
+export const PROJECT_MODES = ['normal', 'strict'] as const;
+export type ProjectMode = (typeof PROJECT_MODES)[number];
 
 export const TASK_STATUSES = [
   'pending',
@@ -62,6 +81,7 @@ export interface Project {
   max_task_attempts: number;
   run_timeout_ms: number;
   status: 'active' | 'paused' | 'archived';
+  mode: ProjectMode;
   created_at: string;
   updated_at: string;
 }
@@ -101,6 +121,13 @@ export interface Task {
   head_commit: string | null;
   decision_revision: number;
   needs_reeval: number;
+  /**
+   * El orquestador cree que lo que produzca esta tarea necesita revisión.
+   *
+   * Es una decisión, no una garantía: aunque valga 0, el sistema revisa igual si la
+   * verificación del proyecto no pasó o si el agente terminó a medias.
+   */
+  needs_review: number;
   attempts: number;
   blocked_reason: string | null;
   created_by: string;
@@ -212,6 +239,9 @@ export const EVENT_TYPES = [
   'run.progress',
   'run.finished',
   'increment.published',
+  // El incremento se ha publicado sin abrir revisión, porque en modo normal el
+  // orquestador marcó que no hacía falta y el cambio pasó la verificación del proyecto.
+  'review.skipped',
   'finding.opened',
   'finding.resolved',
   'approval.requested',

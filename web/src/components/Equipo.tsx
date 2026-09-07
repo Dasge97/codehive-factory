@@ -6,6 +6,7 @@ const NOMBRE_ROL: Record<AgentView['role'], string> = {
   builder: 'Construcción',
   reviewer: 'Revisión',
   researcher: 'Investigación',
+  refactorer: 'Limpieza',
 };
 
 interface Props {

@@ -1,6 +1,6 @@
 import type { Db } from './db.js';
 import { newId, now } from '../shared/ids.js';
-import type { Agent, AgentRole, Decision, EngineName, Project } from '../shared/types.js';
+import type { Agent, AgentRole, Decision, EngineName, Project, ProjectMode } from '../shared/types.js';
 
 export interface CreateProjectInput {
   name: string;
@@ -180,6 +180,7 @@ export interface UpdateProjectInput {
   max_task_attempts?: number;
   run_timeout_ms?: number;
   status?: Project['status'];
+  mode?: ProjectMode;
 }
 
 /** Cambia la configuración de un proyecto. Solo toca los campos que se le pasan. */
@@ -210,6 +211,16 @@ export function updateProject(db: Db, id: string, cambios: UpdateProjectInput): 
  */
 export function setProjectStatus(db: Db, id: string, status: Project['status']): Project {
   return updateProject(db, id, { status });
+}
+
+/**
+ * Cambia el modo de trabajo del proyecto.
+ *
+ * El cambio solo afecta a las tareas que se creen a partir de ahora. Las que ya están en
+ * marcha terminan con las reglas con las que empezaron.
+ */
+export function setProjectMode(db: Db, id: string, mode: ProjectMode): Project {
+  return updateProject(db, id, { mode });
 }
 
 /** Cambia el motor con el que se ejecuta un agente. */

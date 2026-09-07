@@ -8,7 +8,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export type TaskStatus =
   | 'pending' | 'ready' | 'in_progress' | 'in_review' | 'blocked' | 'done' | 'cancelled';
 
-export type AgentRole = 'orchestrator' | 'builder' | 'reviewer' | 'researcher';
+export type AgentRole = 'orchestrator' | 'builder' | 'reviewer' | 'researcher' | 'refactorer';
+
+/**
+ * Modo de trabajo del proyecto.
+ *
+ * En normal el orquestador decide qué se revisa. En estricto se revisa todo y el trabajo
+ * aprobado pasa además por el refactorer.
+ */
+export type ProjectMode = 'normal' | 'strict';
 
 export interface Task {
   id: string;
@@ -152,6 +160,7 @@ export interface ProjectOverview {
     max_concurrent_runs: number;
     max_task_attempts: number;
     status: string;
+    mode: ProjectMode;
   };
   snapshot: {
     goal: string | null;
@@ -232,6 +241,12 @@ export const api = {
 
   pausarProyecto: (id: string, paused: boolean) =>
     pedir<{ status: string }>(`/projects/${id}/pause`, { method: 'POST', body: JSON.stringify({ paused }) }),
+
+  cambiarModo: (id: string, mode: ProjectMode) =>
+    pedir<{ mode: ProjectMode }>(`/projects/${id}/mode`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
 
   cambiarMotor: (agentId: string, engine: string) =>
     pedir<AgentView>(`/agents/${agentId}/engine`, { method: 'POST', body: JSON.stringify({ engine }) }),

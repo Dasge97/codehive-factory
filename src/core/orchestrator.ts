@@ -6,7 +6,14 @@ import { blockingFindings } from './review.js';
 import { createTask, listTasks, requireTask, setPriority, setStatus } from './tasks.js';
 import { queueForRole, razonDeEspera } from './queue.js';
 import { newId, now } from '../shared/ids.js';
-import { AGENT_ROLES, TASK_KINDS, type AgentRole, type ChatMessage, type Task } from '../shared/types.js';
+import {
+  AGENT_ROLES,
+  TASK_KINDS,
+  type AgentRole,
+  type ChatMessage,
+  type ProjectMode,
+  type Task,
+} from '../shared/types.js';
 
 /**
  * Plan que devuelve el orquestador.
@@ -30,6 +37,7 @@ export const orchestratorPlanSchema = z.object({
         priority: z.number().int().min(1).max(100).nullable().optional(),
         path_patterns: z.array(z.string()).nullable().optional(),
         depends_on: z.array(z.string()).nullable().optional(),
+        needs_review: z.boolean().nullable().optional(),
       }),
     )
     .nullable()
@@ -67,8 +75,8 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
         properties: {
           title: { type: 'string', description: 'Título corto y concreto.' },
           goal: { type: 'string', description: 'Qué resultado se espera.' },
-          kind: { type: 'string', enum: ['build', 'review', 'fix', 'research'] },
-          role: { type: 'string', enum: ['builder', 'reviewer', 'researcher'] },
+          kind: { type: 'string', enum: ['build', 'review', 'fix', 'research', 'refactor'] },
+          role: { type: 'string', enum: ['builder', 'reviewer', 'researcher', 'refactorer'] },
           scope: { type: ['string', 'null'], description: 'Qué queda fuera de esta tarea.' },
           acceptance: { type: ['string', 'null'], description: 'Criterios comprobables de aceptación.' },
           priority: { type: ['number', 'null'], description: 'De 1 a 100. Menor número, antes se ejecuta.' },
@@ -84,8 +92,16 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
               'Títulos de otras tareas de este mismo plan, o identificadores de tareas existentes, que deben terminar antes.',
             items: { type: 'string' },
           },
+          needs_review: {
+            type: ['boolean', 'null'],
+            description:
+              'Si lo que produzca esta tarea necesita pasar por el reviewer. false solo para documentación, comentarios o código nuevo que todavía no usa nadie. Ante la duda, true.',
+          },
         },
-        required: ['title', 'goal', 'kind', 'role', 'scope', 'acceptance', 'priority', 'path_patterns', 'depends_on'],
+        required: [
+          'title', 'goal', 'kind', 'role', 'scope', 'acceptance', 'priority',
+          'path_patterns', 'depends_on', 'needs_review',
+        ],
         additionalProperties: false,
       },
     },
@@ -151,6 +167,8 @@ export interface ProjectSnapshot {
     open_blockers: number;
   }>;
   team: Array<{ name: string; role: AgentRole; busy: boolean; queue: number }>;
+  /** Modo de trabajo del proyecto: en estricto se recorre la cadena entera. */
+  mode: ProjectMode;
   chat: Array<{ author: string; body: string }>;
   pending_approvals: Array<{ id: string; task_id: string; request: string }>;
 }
@@ -199,6 +217,7 @@ export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): Proj
 
   return {
     goal: project.goal,
+    mode: project.mode,
     revision: currentRevision(db, projectId),
     decisions: currentDecisions(db, projectId).map((d) => ({ title: d.title, body: d.body, revision: d.revision })),
     tasks: tareas,
@@ -213,6 +232,12 @@ export function renderOrchestratorPrompt(snapshot: ProjectSnapshot, mensajeNuevo
   const partes: string[] = ['# Estado del proyecto'];
 
   partes.push(snapshot.goal ? `Objetivo actual: ${snapshot.goal}` : 'El proyecto todavía no tiene un objetivo escrito.');
+
+  partes.push(
+    snapshot.mode === 'strict'
+      ? 'Modo estricto: todo lo que deje un commit se revisa y después pasa por el refactorer. Tu marca de revisión se ignora.'
+      : 'Modo normal: tú decides qué necesita revisión, con el criterio de tus instrucciones.',
+  );
 
   if (snapshot.decisions.length > 0) {
     partes.push(
@@ -342,6 +367,9 @@ export function applyPlan(db: Db, bus: EventBus, projectId: string, plan: Orches
         path_patterns: entrada.path_patterns ?? [],
         created_by: 'orchestrator',
         decision_revision: revision || 1,
+        // Sin marca explícita, se revisa. Que el orquestador se olvide del campo no puede
+        // significar que el trabajo pase sin revisar.
+        needs_review: entrada.needs_review !== false,
       });
       porTitulo.set(entrada.title, task.id);
       creadas.push(task);

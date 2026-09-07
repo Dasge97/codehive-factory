@@ -6,7 +6,7 @@ import { openDatabase, type Db } from './core/db.js';
 import { EventBus } from './core/events.js';
 import { AGENT_ROLES, type AgentRole, type EngineName, type Project } from './shared/types.js';
 import { createAgent, createProject, listAgents, listProjects } from './core/projects.js';
-import { ENGINE_POR_ROL, ROLE_DEFAULTS, instructionsFor } from './core/roles.js';
+import { ENGINE_POR_ROL, ROLE_DEFAULTS, comprobarInstrucciones, instructionsFor } from './core/roles.js';
 import { EngineRegistry } from './engines/registry.js';
 import type { Engine } from './engines/types.js';
 import { createApi } from './server/api.js';
@@ -72,7 +72,12 @@ export function ensureProject(
   motoresDisponibles?: EngineName[],
 ): Project {
   const existente = listProjects(db).find((p) => resolve(p.repo_path) === resolve(repoPath));
-  if (existente) return existente;
+  if (existente) {
+    // Un proyecto registrado antes de que existiera un rol no tiene ese agente. Se le
+    // crea ahora: si no, el rol nuevo aparece en el código pero nunca en el equipo.
+    crearAgentesQueFaltan(db, existente, model ?? config.model ?? null, motoresDisponibles);
+    return existente;
+  }
 
   const project = createProject(db, {
     name: config.name,
@@ -85,25 +90,53 @@ export function ensureProject(
     run_timeout_ms: config.run_timeout_ms,
   });
 
+  crearAgentesQueFaltan(db, project, model ?? config.model ?? null, motoresDisponibles);
+  return project;
+}
+
+/**
+ * Crea un agente por cada rol que el proyecto todavía no tenga.
+ *
+ * Se llama tanto al registrar un proyecto nuevo como al abrir uno que ya existía. La
+ * segunda es la que importa: cuando se añade un rol al sistema, los proyectos que ya
+ * estaban registrados lo reciben al arrancar, sin tocar nada a mano.
+ *
+ * Devuelve los roles que ha creado.
+ */
+export function crearAgentesQueFaltan(
+  db: Db,
+  project: Project,
+  model: string | null,
+  motoresDisponibles?: EngineName[],
+): AgentRole[] {
+  const yaEstan = new Set(listAgents(db, project.id).map((a) => a.role));
+  const creados: AgentRole[] = [];
+
   for (const role of AGENT_ROLES) {
+    if (yaEstan.has(role)) continue;
+
     // El motor preferido de cada rol, o Claude Code si el preferido no está instalado.
-    const preferido = ENGINE_POR_ROL[role as AgentRole];
+    const preferido = ENGINE_POR_ROL[role];
     const engine =
       !motoresDisponibles || motoresDisponibles.includes(preferido) ? preferido : 'claude_code';
 
     createAgent(db, {
       project_id: project.id,
-      name: ROLE_DEFAULTS[role as AgentRole].name,
-      role: role as AgentRole,
+      name: ROLE_DEFAULTS[role].name,
+      role,
       engine,
-      model: model ?? config.model ?? null,
-      instructions: instructionsFor(role as AgentRole),
-      allowed_tools: ROLE_DEFAULTS[role as AgentRole].tools,
+      model,
+      // El texto que se guarda aquí es el que tenía el agente al crearlo, para dejar
+      // constancia. Lo que se le manda en cada ejecución se lee de los ficheros de
+      // `instrucciones/`, así que editarlos cambia su comportamiento sin recrear nada.
+      instructions: instructionsFor(role),
+      allowed_tools: ROLE_DEFAULTS[role].tools,
       max_workers: 1,
     });
+    creados.push(role);
   }
 
-  return project;
+  return creados;
 }
 
 /** Monta el sistema completo: base de datos, motor, supervisor y servidor web. */
@@ -111,6 +144,10 @@ export async function createApp(config: AppConfig): Promise<App> {
   if (!(await isGitRepo(config.repoPath))) {
     throw new Error(`${config.repoPath} no es un repositorio de Git. Ejecuta git init antes de registrarlo.`);
   }
+
+  // Si falta un fichero de instrucciones, es mejor no arrancar que descubrirlo a mitad de
+  // una tarea, cuando ya se ha gastado una ejecución del motor.
+  comprobarInstrucciones();
 
   const db = openDatabase(config.dbPath);
   const bus = new EventBus();

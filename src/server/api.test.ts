@@ -9,6 +9,7 @@ import { claimTask } from '../core/queue.js';
 import { publishIncrement } from '../core/review.js';
 import { agentForRole } from '../core/projects.js';
 import { git } from '../workers/git.js';
+import { AGENT_ROLES } from '../shared/types.js';
 
 let app: App;
 let repo: string;
@@ -92,7 +93,9 @@ describe('consulta del estado', () => {
     const { status, body } = await get(`/api/projects/${app.project.id}`);
     expect(status).toBe(200);
     expect(body.project.name).toBe('Proyecto de prueba');
-    expect(body.snapshot.team).toHaveLength(4);
+    // Un agente por rol: la cuenta sale de la lista de roles para que añadir uno no
+    // obligue a tocar esta prueba.
+    expect(body.snapshot.team).toHaveLength(AGENT_ROLES.length);
     expect(body.integrable).toEqual([]);
   });
 

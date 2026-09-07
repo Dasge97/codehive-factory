@@ -1,6 +1,7 @@
 import type { Db } from '../core/db.js';
 import { EventBus, appendEvent } from '../core/events.js';
 import { agentTools, listAgents, requireProject } from '../core/projects.js';
+import { instructionsFor } from '../core/roles.js';
 import { claimNext, queueForRole } from '../core/queue.js';
 import {
   ORCHESTRATOR_PLAN_JSON_SCHEMA,
@@ -313,7 +314,7 @@ export class Supervisor {
         timeoutMs: requireProject(this.db, this.projectId).run_timeout_ms,
         model: agent.model,
         resultSchema: ORCHESTRATOR_PLAN_JSON_SCHEMA,
-        systemPromptAppend: agent.instructions,
+        systemPromptAppend: instructionsFor(agent.role),
         permissionMode: 'manual',
       },
       // El orquestador publica lo que va haciendo, igual que los demás agentes. Sin esto,

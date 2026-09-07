@@ -118,6 +118,14 @@ export interface CreateTaskInput {
   branch?: string | null;
   base_commit?: string | null;
   decision_revision?: number;
+  /**
+   * Si lo que produzca esta tarea necesita revisión. Por omisión sí.
+   *
+   * Solo el orquestador lo pone a false, y solo cuando el cambio no toca comportamiento
+   * que ya funcionaba. El suelo que aplica el sistema al terminar la ejecución puede
+   * revisar igual.
+   */
+  needs_review?: boolean;
 }
 
 /**
@@ -142,8 +150,8 @@ export function createTask(db: Db, bus: EventBus, input: CreateTaskInput): Task 
       `INSERT INTO tasks (
          id, project_id, parent_task_id, kind, title, goal, scope, acceptance,
          required_role, priority, status, branch, base_commit, decision_revision,
-         created_by, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+         needs_review, created_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.project_id,
@@ -158,6 +166,7 @@ export function createTask(db: Db, bus: EventBus, input: CreateTaskInput): Task 
       input.branch ?? null,
       input.base_commit ?? null,
       input.decision_revision ?? 1,
+      input.needs_review === false ? 0 : 1,
       input.created_by,
       creado,
       creado,

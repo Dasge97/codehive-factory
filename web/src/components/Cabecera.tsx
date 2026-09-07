@@ -1,4 +1,4 @@
-import type { AgentView, EngineUsage, ProjectOverview } from '../api';
+import type { AgentView, EngineUsage, ProjectMode, ProjectOverview } from '../api';
 
 interface Props {
   resumen: ProjectOverview;
@@ -12,6 +12,7 @@ interface Props {
   tareasAbiertas: number;
   tareasAtascadas: number;
   listasParaIntegrar: number;
+  alCambiarModo: (modo: ProjectMode) => void;
 }
 
 /**
@@ -32,6 +33,7 @@ export function Cabecera({
   tareasAbiertas,
   tareasAtascadas,
   listasParaIntegrar,
+  alCambiarModo,
 }: Props) {
   const trabajando = agentes.filter((a) => a.busy_workers > 0).length;
   const uso = resumen.usage.find((u) => u.engine === 'claude_code');
@@ -58,6 +60,8 @@ export function Cabecera({
       </div>
 
       <div className="cabecera-acciones">
+        <Modo modo={resumen.project.mode} alCambiar={alCambiarModo} />
+
         <Consumo uso={uso} />
 
         <button
@@ -84,6 +88,39 @@ export function Cabecera({
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * Interruptor entre los dos modos de trabajo.
+ *
+ * En modo normal el orquestador decide qué necesita revisión, y solo trabaja quien haga
+ * falta. En modo estricto todo lo que deja un commit se revisa y después pasa por el
+ * refactorer.
+ *
+ * El modo se graba en cada tarea al crearla, así que cambiarlo no altera el trabajo que
+ * ya está en marcha.
+ */
+function Modo({ modo, alCambiar }: { modo: ProjectMode; alCambiar: (modo: ProjectMode) => void }) {
+  return (
+    <div className="modo" role="group" aria-label="Modo de trabajo">
+      <button
+        className={`boton pequeno${modo === 'normal' ? ' activo' : ''}`}
+        aria-pressed={modo === 'normal'}
+        onClick={() => alCambiar('normal')}
+        title="Solo trabaja quien haga falta. El orquestador decide qué se revisa."
+      >
+        Normal
+      </button>
+      <button
+        className={`boton pequeno${modo === 'strict' ? ' activo' : ''}`}
+        aria-pressed={modo === 'strict'}
+        onClick={() => alCambiar('strict')}
+        title="Se revisa todo y el trabajo aprobado pasa además por el refactorer."
+      >
+        Estricto
+      </button>
+    </div>
   );
 }
 

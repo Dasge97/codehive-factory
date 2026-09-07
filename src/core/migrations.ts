@@ -7,6 +7,17 @@ export interface Migration {
   version: number;
   name: string;
   sql: string;
+  /**
+   * Esta migración recrea una tabla a la que otras apuntan, así que necesita que las
+   * claves foráneas estén desactivadas mientras se aplica.
+   *
+   * SQLite no permite modificar una restricción CHECK: hay que crear la tabla nueva,
+   * copiar, borrar la vieja y renombrar. Con las claves foráneas activadas, el borrado
+   * arrastra en cascada las filas de las tablas que apuntaban a ella, sin dar ningún
+   * error. Y `PRAGMA foreign_keys` no hace nada dentro de una transacción, así que la
+   * desactivación tiene que hacerla el ejecutor antes de abrirla.
+   */
+  sinClavesForaneas?: boolean;
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -291,6 +302,96 @@ CREATE TABLE agent_messages (
 
 CREATE INDEX idx_agent_messages_thread  ON agent_messages(project_id, thread_id, created_at);
 CREATE INDEX idx_agent_messages_pending ON agent_messages(to_agent_id, delivered_at);
+`,
+  },
+
+  {
+    version: 3,
+    name: 'modo del proyecto, marca de revisión y rol refactorer',
+    // Recrea `agents` y `tasks` porque sus roles válidos están fijados con una
+    // restricción CHECK, y SQLite no deja modificar una restricción sin rehacer la tabla.
+    sinClavesForaneas: true,
+    sql: `
+-- Modo del proyecto. En 'normal' el orquestador decide qué se revisa; en 'strict' se
+-- recorre la cadena entera pase lo que pase.
+ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'normal';
+
+-- Roles nuevos: se añade 'refactorer'. Tipo de tarea nuevo: 'refactor'.
+CREATE TABLE agents_nuevo (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  engine        TEXT NOT NULL,
+  model         TEXT,
+  instructions  TEXT NOT NULL,
+  allowed_tools TEXT NOT NULL,
+  max_workers   INTEGER NOT NULL DEFAULT 1,
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  CHECK (role IN ('orchestrator','builder','reviewer','researcher','refactorer')),
+  CHECK (engine IN ('claude_code','codex')),
+  CHECK (max_workers >= 1)
+);
+
+INSERT INTO agents_nuevo SELECT * FROM agents;
+DROP TABLE agents;
+ALTER TABLE agents_nuevo RENAME TO agents;
+CREATE INDEX idx_agents_role ON agents(project_id, role, enabled);
+
+-- La columna needs_review es la marca que pone el orquestador al crear la tarea. Las
+-- tareas que ya existen se quedan en 1, que es el comportamiento de siempre.
+CREATE TABLE tasks_nuevo (
+  id                TEXT PRIMARY KEY,
+  project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  parent_task_id    TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  kind              TEXT NOT NULL,
+  title             TEXT NOT NULL,
+  goal              TEXT NOT NULL,
+  scope             TEXT,
+  acceptance        TEXT,
+  required_role     TEXT NOT NULL,
+  priority          INTEGER NOT NULL DEFAULT 50,
+  status            TEXT NOT NULL,
+  assigned_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  active_run_id     TEXT,
+  branch            TEXT,
+  workspace_path    TEXT,
+  base_commit       TEXT,
+  head_commit       TEXT,
+  decision_revision INTEGER NOT NULL DEFAULT 1,
+  needs_reeval      INTEGER NOT NULL DEFAULT 0,
+  needs_review      INTEGER NOT NULL DEFAULT 1,
+  attempts          INTEGER NOT NULL DEFAULT 0,
+  blocked_reason    TEXT,
+  created_by        TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  closed_at         TEXT,
+  CHECK (kind IN ('build','review','fix','research','integrate','refactor')),
+  CHECK (required_role IN ('orchestrator','builder','reviewer','researcher','refactorer')),
+  CHECK (status IN ('pending','ready','in_progress','in_review','blocked','done','cancelled')),
+  CHECK (id <> parent_task_id)
+);
+
+INSERT INTO tasks_nuevo (
+  id, project_id, parent_task_id, kind, title, goal, scope, acceptance,
+  required_role, priority, status, assigned_agent_id, active_run_id, branch,
+  workspace_path, base_commit, head_commit, decision_revision, needs_reeval,
+  attempts, blocked_reason, created_by, created_at, updated_at, closed_at
+)
+SELECT
+  id, project_id, parent_task_id, kind, title, goal, scope, acceptance,
+  required_role, priority, status, assigned_agent_id, active_run_id, branch,
+  workspace_path, base_commit, head_commit, decision_revision, needs_reeval,
+  attempts, blocked_reason, created_by, created_at, updated_at, closed_at
+FROM tasks;
+
+DROP TABLE tasks;
+ALTER TABLE tasks_nuevo RENAME TO tasks;
+CREATE INDEX idx_tasks_queue  ON tasks(project_id, status, required_role, priority);
+CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
 `,
   },
 ];

@@ -619,6 +619,121 @@ D26 aplicado al otro motor.
 
 ---
 
+## D39 · Dos modos de trabajo, y el recorrido lo decide lo que se pide
+
+**Origen:** creador, 7 de septiembre de 2026.
+
+El proyecto tiene dos modos. En **normal**, el orquestador decide qué necesita revisión y
+solo trabaja el rol que haga falta. En **estricto**, todo lo que deja un commit se revisa
+y después pasa por el refactorer.
+
+El modo se cambia desde la cabecera de la interfaz. Se graba en cada tarea al crearla, así
+que cambiar de modo no altera el trabajo que ya está en marcha.
+
+**Por qué:** el creador quiere poder pedirle al orquestador que investigue algo sin que
+eso monte una cadena de construcción, revisión e integración. Obligar a recorrer todas las
+etapas en cada petición es lo que le molesta del desarrollo dirigido por especificación.
+El recorrido lo decide lo que se pide, no el sistema.
+
+**Qué sustituye:** hasta ahora, cualquier tarea que dejaba un commit generaba una revisión
+sin excepción, y no lo decidía nadie: estaba fijo en el código.
+
+---
+
+## D40 · Quién decide que algo se revisa, y el suelo que no puede saltarse
+
+**Origen:** técnica, dentro de la decisión D39.
+
+El orquestador marca cada tarea al crearla. Marca que no necesita revisión solo cuando el
+cambio toca únicamente documentación, comentarios o textos, o cuando es código nuevo que
+todavía no usa nada del proyecto. Ante la duda, marca que sí.
+
+Por encima de su decisión hay un suelo que el sistema aplica siempre, y que revisa aunque
+el orquestador dijera que no hacía falta:
+
+- La verificación del proyecto no pasó, o no llegó a ejecutarse.
+- El proyecto no tiene comando de verificación.
+- El agente terminó a medias en lugar de completo.
+- El agente necesitó algo fuera de su alcance.
+
+**Por qué:** el suelo es lo que hace que equivocarse marcando una tarea no pueda dejar
+pasar código roto. Se apoya en datos que el agente ya devuelve en su resultado, así que no
+hace falta ningún campo nuevo en el contrato.
+
+---
+
+## D41 · Un rol nuevo: el refactorer
+
+**Origen:** creador, 7 de septiembre de 2026.
+
+Se añade un quinto rol. El refactorer mejora código que ya funciona sin cambiar lo que
+hace: nombres, duplicación, funciones que mezclan responsabilidades, comentarios obsoletos
+y código muerto.
+
+Trabaja sobre un commit que el reviewer ya aprobó. Demuestra que no ha cambiado nada
+ejecutando la verificación del proyecto antes y después. Si el proyecto no tiene comando
+de verificación, no trabaja: sin forma de comprobarlo, cualquier cambio es una apuesta.
+
+Solo entra en modo estricto. Una tarea de refactor no genera otra, para que la cadena no se
+encadene sola.
+
+**Qué sustituye:** el apartado 6.6 del documento 06 decía que la limpieza de código se
+asigna como tarea al builder y que solo se crean roles nuevos cuando el volumen lo
+justifique.
+
+**Por qué:** al reviewer se le prohíbe expresamente proponer cambios de estilo, así que ese
+trabajo hoy no lo recoge nadie.
+
+**Qué se descartó:** un agente limpiador que borrara los restos del desarrollo con IA. Al
+estudiar SwarmForge se vio que el problema se evita mejor con dos reglas de flujo, que ya
+están en las instrucciones comunes: los ficheros temporales van dentro del directorio de
+trabajo del agente, y no se comitea nada ajeno a la tarea. El código muerto y los intentos
+abandonados los recoge el refactorer.
+
+---
+
+## D42 · Las instrucciones de los agentes viven en ficheros de texto
+
+**Origen:** técnica, 7 de septiembre de 2026.
+
+El texto que recibe cada agente está en la carpeta `instrucciones/`, no en el código. Se
+compone de dos partes: las reglas comunes a todos los agentes, y las de su rol. Se leen del
+disco en cada ejecución.
+
+**Por qué:** cambiar lo que hace un agente pasa a ser editar un fichero de texto, y el
+cambio se aplica a la tarea siguiente sin recompilar ni reiniciar. Antes, cada instrucción
+era una cadena de TypeScript dentro de `src/core/roles.ts`.
+
+**De dónde viene:** de la constitución de SwarmForge, el sistema de coordinación de agentes
+de Robert C. Martin. Allí las reglas también son ficheros que cada agente lee antes de
+empezar, separando la ley común de la de cada rol.
+
+**Lo que sigue en el código:** las herramientas que puede usar cada rol. No son texto para
+el agente sino permisos que se le dan al motor, y una instrucción es una petición mientras
+que un permiso es una garantía.
+
+---
+
+## D43 · Una migración que recrea una tabla se ejecuta sin claves foráneas
+
+**Origen:** técnica, 7 de septiembre de 2026.
+
+Una migración puede declarar que necesita las claves foráneas desactivadas. El ejecutor las
+apaga antes de abrir la transacción, aplica la migración, y comprueba con
+`PRAGMA foreign_key_check` que no ha quedado ninguna referencia rota antes de darla por
+buena.
+
+**Por qué:** SQLite no permite modificar una restricción CHECK. Ampliar la lista de roles
+válidos obliga a recrear las tablas `agents` y `tasks`, y recrear significa borrar. Con las
+claves foráneas activadas, ese borrado arrastra en cascada las filas de todas las tablas
+que apuntaban a ella, y lo hace **sin dar ningún error**. La primera versión de la
+migración se llevó por delante todas las tareas del proyecto en silencio.
+
+`PRAGMA foreign_keys` no hace nada dentro de una transacción, así que la desactivación
+tiene que hacerla el ejecutor y no la propia migración.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

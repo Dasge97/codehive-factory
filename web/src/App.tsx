@@ -219,6 +219,7 @@ export function App() {
         tareasAbiertas={abiertas}
         tareasAtascadas={atascadas}
         listasParaIntegrar={resumen.integrable.length}
+        alCambiarModo={(modo) => void api.cambiarModo(resumen.project.id, modo).then(recargarTodo)}
       />
 
       <div className="avisos">

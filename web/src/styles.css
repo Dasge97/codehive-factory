@@ -57,6 +57,8 @@
   --rol-reviewer-suave: #e9e0f8;
   --rol-investigador: #2f8b6a;
   --rol-investigador-suave: #d9f0e6;
+  --rol-refactorer: #b0603a;
+  --rol-refactorer-suave: #f7e0d3;
 
   --fuente: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --fuente-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
@@ -170,19 +172,37 @@ button {
 }
 
 /*
- * Todos los agentes ocupan lo mismo, el orquestador incluido. Las celdas se reparten el
- * ancho y el alto por igual, y bajan de fila solas cuando no caben.
+ * Rejilla fija de tres columnas por dos filas.
+ *
+ * El orquestador vive en la columna del medio y la ocupa entera, de arriba abajo: es con
+ * quien hablas, así que es lo principal de la pantalla. Los otros cuatro agentes se
+ * reparten las columnas de los lados, dos en cada una.
  */
 .cuerpo {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
+  grid-template-columns: 1fr 1.2fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 14px;
   padding: 14px 16px 16px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
+
+/* El chat es el panel del orquestador: columna del medio, las dos filas. */
+.cuerpo > .agente-panel.chat {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/*
+ * Los agentes se colocan solos alrededor. Los dos primeros a la izquierda y los dos
+ * siguientes a la derecha, en el orden en que llegan.
+ */
+.cuerpo > .agente-panel:not(.chat):nth-of-type(2) { grid-column: 1; grid-row: 1; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(3) { grid-column: 1; grid-row: 2; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(4) { grid-column: 3; grid-row: 1; }
+.cuerpo > .agente-panel:not(.chat):nth-of-type(5) { grid-column: 3; grid-row: 2; }
 
 /*
  * El panel que pulsas se pone delante y crece un poco; los demás se quedan atenuados
@@ -255,27 +275,32 @@ button {
 .agente-panel[data-rol='builder'] { border-color: var(--rol-builder-suave); }
 .agente-panel[data-rol='reviewer'] { border-color: var(--rol-reviewer-suave); }
 .agente-panel[data-rol='investigador'] { border-color: var(--rol-investigador-suave); }
+.agente-panel[data-rol='refactorer'] { border-color: var(--rol-refactorer-suave); }
 
 .agente-panel[data-rol='orquestador'] > header { background: var(--rol-orquestador-suave); }
 .agente-panel[data-rol='builder'] > header { background: var(--rol-builder-suave); }
 .agente-panel[data-rol='reviewer'] > header { background: var(--rol-reviewer-suave); }
 .agente-panel[data-rol='investigador'] > header { background: var(--rol-investigador-suave); }
+.agente-panel[data-rol='refactorer'] > header { background: var(--rol-refactorer-suave); }
 
 .agente-panel[data-rol='orquestador'] .indicador.latiendo { background: var(--rol-orquestador); }
 .agente-panel[data-rol='builder'] .indicador.latiendo { background: var(--rol-builder); }
 .agente-panel[data-rol='reviewer'] .indicador.latiendo { background: var(--rol-reviewer); }
 .agente-panel[data-rol='investigador'] .indicador.latiendo { background: var(--rol-investigador); }
+.agente-panel[data-rol='refactorer'] .indicador.latiendo { background: var(--rol-refactorer); }
 
 .agente-panel[data-rol='orquestador'] .situacion.trabajando { color: var(--rol-orquestador); }
 .agente-panel[data-rol='builder'] .situacion.trabajando { color: var(--rol-builder); }
 .agente-panel[data-rol='reviewer'] .situacion.trabajando { color: var(--rol-reviewer); }
 .agente-panel[data-rol='investigador'] .situacion.trabajando { color: var(--rol-investigador); }
+.agente-panel[data-rol='refactorer'] .situacion.trabajando { color: var(--rol-refactorer); }
 
 /* Trabajando, el panel se marca con su propio color. */
 .agente-panel.activo[data-rol='orquestador'] { border-color: var(--rol-orquestador); }
 .agente-panel.activo[data-rol='builder'] { border-color: var(--rol-builder); }
 .agente-panel.activo[data-rol='reviewer'] { border-color: var(--rol-reviewer); }
 .agente-panel.activo[data-rol='investigador'] { border-color: var(--rol-investigador); }
+.agente-panel.activo[data-rol='refactorer'] { border-color: var(--rol-refactorer); }
 
 .agente-panel > header {
   display: flex;
@@ -1239,19 +1264,26 @@ details > summary {
 
 @media (max-width: 1280px) {
   .cuerpo {
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 10px;
     padding: 10px 12px 12px;
   }
 }
 
 @media (max-width: 1000px) {
+  /* En pantalla estrecha no hay rejilla: los paneles van uno debajo de otro. */
   .cuerpo {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
     grid-auto-rows: auto;
     padding: 12px;
     gap: 12px;
     overflow-y: auto;
+  }
+
+  .cuerpo > .agente-panel,
+  .cuerpo > .agente-panel.chat {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   /* En pantalla estrecha se ve una sección cada vez. */
@@ -1366,3 +1398,35 @@ details > summary {
 }
 
 
+
+/* ------------------------------------------------------------------ */
+/* Modo de trabajo                                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Los dos modos van juntos, como un interruptor de dos posiciones. Se ve cuál está
+ * puesto sin tener que abrir nada, porque cambia lo que hace el equipo con cada encargo.
+ */
+.modo {
+  display: inline-flex;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-pequeno);
+  overflow: hidden;
+}
+
+.modo .boton {
+  border: 0;
+  border-radius: 0;
+  background: var(--superficie);
+  color: var(--texto-suave);
+}
+
+.modo .boton + .boton {
+  border-left: 1px solid var(--borde);
+}
+
+.modo .boton.activo {
+  background: var(--acento-suave);
+  color: var(--acento-texto);
+  font-weight: 600;
+}
