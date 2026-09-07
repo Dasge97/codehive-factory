@@ -231,14 +231,15 @@ function cuando(fecha: Date): string {
  * aparte. Así que solo se actualiza cuando un agente trabaja o cuando hablas con el
  * orquestador.
  *
- * Por eso hay dos casos en los que **no se enseña un porcentaje**:
+ * Por eso hay dos casos en los que **no se enseña nada**:
  *
  * - La ventana de cinco horas que se midió ya se ha reiniciado. El consumo de una ventana
  *   cerrada no dice nada del que hay ahora.
  * - No hay ninguna medida todavía.
  *
  * Enseñar un número viejo como si fuera de ahora es peor que no enseñar ninguno: se toman
- * decisiones con él.
+ * decisiones con él. Y enseñar un hueco diciendo que no se sabe tampoco aporta, así que
+ * la pastilla desaparece hasta que haya una medida que valga.
  */
 function Consumo({ usos }: { usos: EngineUsage[] }) {
   const conDato = usos.filter((u) => u.five_hour_util !== null);
@@ -255,21 +256,9 @@ function Consumo({ usos }: { usos: EngineUsage[] }) {
         const caducada = reinicio !== null && reinicio.getTime() < Date.now();
         const vieja = Date.now() - medida.getTime() > MEDIDA_VIEJA_MS;
 
-        if (caducada) {
-          return (
-            <div
-              key={uso.engine}
-              className="consumo caducada"
-              title={
-                `Cuota de ${motor}: no se sabe. La última medida es de ${cuando(medida)}, ` +
-                `y la ventana de cinco horas que medía se reinició ${cuando(reinicio)}. ` +
-                'La cifra se actualiza sola en cuanto trabaje un agente o hables con el orquestador.'
-              }
-            >
-              <span>{motor} —</span>
-            </div>
-          );
-        }
+        // La ventana medida ya se cerró, así que no se sabe cuánta cuota queda. No se
+        // enseña nada: un hueco vacío en la cabecera no aporta y el sitio hace falta.
+        if (caducada) return null;
 
         const porcentaje = Math.round((uso.five_hour_util ?? 0) * 100);
 

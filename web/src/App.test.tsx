@@ -435,7 +435,7 @@ describe('consumo de la suscripción', () => {
     await waitFor(() => expect(screen.getByText('Claude 42%')).toBeDefined());
   });
 
-  it('una medida de una ventana ya reiniciada no se enseña como porcentaje', async () => {
+  it('una medida de una ventana ya reiniciada no se enseña', async () => {
     const ayer = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
     consumo = [
       {
@@ -448,10 +448,12 @@ describe('consumo de la suscripción', () => {
     ];
 
     const { container } = render(<App />);
-    await waitFor(() => expect(screen.getByText('Claude —')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
 
+    // No se sabe cuánta cuota queda, así que la pastilla desaparece en vez de ocupar
+    // sitio para decir que no se sabe.
     expect(screen.queryByText('Claude 6%')).toBeNull();
-    expect(container.querySelector('.consumo.caducada')).not.toBeNull();
+    expect(container.querySelector('.consumo')).toBeNull();
   });
 
   it('dice cuándo se midió la cuota, porque solo se actualiza al ejecutar', async () => {

@@ -26,7 +26,17 @@ Add-Type -AssemblyName System.Windows.Forms | Out-Null
 $dialogo = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialogo.Description = 'Elige la carpeta del proyecto'
 $dialogo.ShowNewFolderButton = $false
-if ($env:CODEHIVE_CARPETA_INICIO) { $dialogo.SelectedPath = $env:CODEHIVE_CARPETA_INICIO }
+
+# El árbol arranca en Este equipo. Con la raíz por omisión, que es el escritorio, el
+# diálogo recorre también OneDrive, la red y las ubicaciones del perfil, y tarda segundos
+# en aparecer.
+$dialogo.RootFolder = [System.Environment+SpecialFolder]::MyComputer
+
+# La carpeta de inicio solo se pone si existe. Con una ruta que no existe, el diálogo
+# recorre el árbol entero buscándola antes de rendirse.
+if ($env:CODEHIVE_CARPETA_INICIO -and (Test-Path -LiteralPath $env:CODEHIVE_CARPETA_INICIO)) {
+  $dialogo.SelectedPath = $env:CODEHIVE_CARPETA_INICIO
+}
 
 # El diálogo se cuelga de una ventana siempre encima. Sin ella se abre detrás del
 # navegador y parece que el sistema se ha quedado colgado.

@@ -39,10 +39,17 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
     api.proyectos().then(setRecientes).catch(() => setRecientes([]));
   }, [explorar, rutaActual]);
 
-  /** Abre el diálogo de carpetas del sistema, que sale en el equipo donde corre el servicio. */
+  /**
+   * Abre el diálogo de carpetas del sistema, que sale en el equipo donde corre el servicio.
+   *
+   * Tarda unos segundos en aparecer: hay que arrancar PowerShell y montar la ventana. El
+   * aviso lo dice, porque si no parece que el botón no ha hecho nada.
+   */
   async function elegirEnElEquipo() {
     setTrabajando(true);
-    setAviso('Elige la carpeta en la ventana que se ha abierto en el equipo donde corre el sistema.');
+    setAviso(
+      'Abriendo el explorador de Windows en el equipo donde corre el sistema. Tarda unos segundos en aparecer.',
+    );
     try {
       const elegida = await api.selectorNativo(carpeta?.path);
       if (elegida.path) {
@@ -124,7 +131,7 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
                 disabled={trabajando}
                 onClick={() => void elegirEnElEquipo()}
               >
-                Elegir carpeta con el explorador de Windows
+                {trabajando ? 'Abriendo el explorador de Windows…' : 'Elegir carpeta con el explorador de Windows'}
               </button>
             )}
 
