@@ -138,8 +138,9 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
 
   if (evento.type === 'run.finished') {
     const estado = String(datos['status'] ?? '');
-    // El resumen entero se lee en la tarea; aquí solo cabe su primera frase.
-    const resumen = recortar(String(datos['summary'] ?? datos['error'] ?? ''), 160);
+    // El resumen sale casi entero: es lo que el agente cuenta de su trabajo, y cortarlo
+    // a una frase deja al lector sin saber qué pasó. El texto completo está en la tarea.
+    const resumen = recortar(String(datos['summary'] ?? datos['error'] ?? ''), 600);
     return {
       ...base,
       texto: estado === 'succeeded' ? `Termina: ${resumen}` : `Termina con ${estado}: ${resumen}`,
@@ -150,14 +151,19 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
   }
 
   if (evento.type === 'run.progress') {
-    const texto = recortar(String(datos['text'] ?? ''), 220);
+    const clase = claseDelProgreso(String(datos['kind'] ?? ''));
+
+    // Lo que el agente dice se enseña entero, porque es lo que hay que leer. Lo que hace
+    // y lo que recibe se resume, porque solo interesa saber de qué va.
+    const texto = recortar(String(datos['text'] ?? ''), clase === 'dice' ? 1500 : 220);
     if (!texto) return null;
+
     return {
       ...base,
       texto,
       herramienta: datos['tool'] ? String(datos['tool']) : null,
       esError: datos['is_error'] === true,
-      clase: claseDelProgreso(String(datos['kind'] ?? '')),
+      clase,
     };
   }
 

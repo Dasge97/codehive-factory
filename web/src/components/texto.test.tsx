@@ -52,6 +52,45 @@ describe('texto de los agentes', () => {
   });
 });
 
+describe('lo que el agente dice no se corta', () => {
+  it('un mensaje largo se enseña entero, no resumido a una frase', () => {
+    const dicho = 'He terminado la investigación. '.repeat(20);
+    const pasos = pasosPorAgente([
+      {
+        id: 1,
+        project_id: 'prj_1',
+        type: 'run.progress',
+        task_id: 'tsk_1',
+        run_id: 'run_1',
+        agent_id: 'agt_1',
+        payload: JSON.stringify({ kind: 'message', text: dicho }),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    expect(pasos.get('agt_1')![0]!.texto).toBe(dicho.trim());
+    expect(pasos.get('agt_1')![0]!.texto.endsWith('…')).toBe(false);
+  });
+
+  it('en cambio, la salida de una herramienta sí se resume', () => {
+    const salida = 'una línea de salida cualquiera '.repeat(20);
+    const pasos = pasosPorAgente([
+      {
+        id: 1,
+        project_id: 'prj_1',
+        type: 'run.progress',
+        task_id: 'tsk_1',
+        run_id: 'run_1',
+        agent_id: 'agt_1',
+        payload: JSON.stringify({ kind: 'tool_result', text: salida }),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    expect(pasos.get('agt_1')![0]!.texto.endsWith('…')).toBe(true);
+  });
+});
+
 describe('resaltado dentro de un paso', () => {
   const destacados = (texto: string) =>
     trozosDelPaso(texto).filter((t) => t.destacado).map((t) => t.texto);
@@ -134,7 +173,7 @@ describe('color de cada agente', () => {
     expect(pasos.get('agt_1')![0]!.texto).toBe('casos sueltos con espacios');
   });
 
-  it('el resumen final de una ejecución se recorta al panel', () => {
+  it('un resumen larguísimo se recorta, pero muy por encima de una frase', () => {
     const pasos = pasosPorAgente([
       {
         id: 1,
@@ -148,8 +187,9 @@ describe('color de cada agente', () => {
       },
     ]);
 
-    // El resumen entero se lee en la tarea, no en el panel.
-    expect(pasos.get('agt_1')![0]!.texto.length).toBeLessThan(200);
+    // Se lee casi entero en el panel. El texto completo está en la tarea.
+    expect(pasos.get('agt_1')![0]!.texto.length).toBeGreaterThan(400);
+    expect(pasos.get('agt_1')![0]!.texto.length).toBeLessThan(700);
     expect(pasos.get('agt_1')![0]!.texto.endsWith('…')).toBe(true);
   });
 

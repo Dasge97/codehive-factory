@@ -272,7 +272,9 @@ export class RunState {
 
     for (const bloque of bloques as Array<Record<string, unknown>>) {
       if (bloque['type'] === 'text' && typeof bloque['text'] === 'string') {
-        this.onProgress({ kind: 'message', text: recortar(bloque['text'], 400) });
+        // Lo que el agente dice es lo que hay que leer, así que no se recorta a una
+        // frase. El límite es solo para que un volcado enorme no llene el panel.
+        this.onProgress({ kind: 'message', text: recortar(bloque['text'], 1500) });
       } else if (bloque['type'] === 'tool_use') {
         // El objeto entero de argumentos no lo lee nadie: se cuenta qué hace la
         // herramienta, con el fichero o el comando que toca.

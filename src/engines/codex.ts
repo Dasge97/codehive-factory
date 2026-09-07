@@ -322,7 +322,8 @@ export class CodexRunState {
     }
 
     if (completado && typeof i['text'] === 'string') {
-      this.onProgress({ kind: 'message', text: recortar(i['text'], 400) });
+      // Lo que el agente dice es lo que hay que leer, así que no se recorta a una frase.
+      this.onProgress({ kind: 'message', text: recortar(i['text'], 1500) });
     }
   }
 

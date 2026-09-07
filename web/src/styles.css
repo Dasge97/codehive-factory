@@ -467,8 +467,27 @@ button {
  * marca a la izquierda del color de su rol. Lo que le devuelven va más apagado, porque es
  * material de consulta y no una decisión suya.
  */
+/*
+ * Lo que el agente dice va sobre un fondo, para poder encontrarlo de un vistazo entre todo
+ * lo que hace. Es el texto que hay que leer; lo demás es rastro de su trabajo.
+ */
+.paso-agente[data-clase='dice'] {
+  padding-bottom: 6px;
+}
+
 .paso-agente[data-clase='dice'] .texto {
   color: var(--texto);
+  background: var(--superficie-2);
+  border-radius: var(--radio-pequeno);
+  padding: 7px 9px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Sobre el fondo gris, un dato necesita el suyo propio para seguir distinguiéndose. */
+.paso-agente[data-clase='dice'] .dato {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
 }
 
 .paso-agente[data-clase='hace'] .texto {
