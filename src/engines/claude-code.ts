@@ -272,11 +272,14 @@ export class RunState {
 
     for (const bloque of bloques as Array<Record<string, unknown>>) {
       if (bloque['type'] === 'text' && typeof bloque['text'] === 'string') {
-        this.onProgress({ kind: 'message', text: bloque['text'] });
+        this.onProgress({ kind: 'message', text: recortar(bloque['text'], 400) });
       } else if (bloque['type'] === 'tool_use') {
+        // El objeto entero de argumentos no lo lee nadie: se cuenta qué hace la
+        // herramienta, con el fichero o el comando que toca.
+        const herramienta = typeof bloque['name'] === 'string' ? bloque['name'] : 'una herramienta';
         this.onProgress({
           kind: 'tool_use',
-          text: JSON.stringify(bloque['input'] ?? {}).slice(0, 500),
+          text: describirUsoDeHerramienta(herramienta, bloque['input']),
           tool: typeof bloque['name'] === 'string' ? bloque['name'] : undefined,
         });
       }
@@ -291,10 +294,14 @@ export class RunState {
     for (const bloque of bloques as Array<Record<string, unknown>>) {
       if (bloque['type'] !== 'tool_result') continue;
       const contenido = bloque['content'];
+      const esError = bloque['is_error'] === true;
       this.onProgress({
         kind: 'tool_result',
-        text: (typeof contenido === 'string' ? contenido : JSON.stringify(contenido ?? '')).slice(0, 500),
-        isError: bloque['is_error'] === true,
+        text: describirResultado(
+          typeof contenido === 'string' ? contenido : JSON.stringify(contenido ?? ''),
+          esError,
+        ),
+        isError: esError,
       });
     }
   }

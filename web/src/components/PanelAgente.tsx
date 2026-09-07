@@ -39,6 +39,16 @@ const NOMBRE_ROL: Record<AgentView['role'], string> = {
   refactorer: 'Limpieza',
 };
 
+/**
+ * Qué clase de paso es, para poder pintarlo distinto.
+ *
+ * - `dice`: el agente hablando, en prosa.
+ * - `hace`: usa una herramienta. Lee un fichero, ejecuta un comando, busca algo.
+ * - `recibe`: lo que la herramienta le devolvió.
+ * - `hito`: empieza o termina de trabajar.
+ */
+export type ClaseDePaso = 'dice' | 'hace' | 'recibe' | 'hito';
+
 /** Un paso del trabajo de un agente, sacado de los eventos que publica el motor. */
 export interface PasoDeAgente {
   id: number;
@@ -46,6 +56,46 @@ export interface PasoDeAgente {
   texto: string;
   herramienta: string | null;
   esError: boolean;
+  clase: ClaseDePaso;
+}
+
+/**
+ * Parte un paso en trozos, marcando los que conviene resaltar.
+ *
+ * Lo que interesa distinguir de un vistazo es sobre qué actúa el agente: el fichero que
+ * lee, el comando que ejecuta, el texto que busca. El resto es la frase que lo explica.
+ *
+ * Se reconocen por su forma, sin saber de qué lenguaje se trata: rutas con barra, nombres
+ * con extensión, y palabras con guiones o guiones bajos como las de una orden de consola.
+ */
+const TROZO_DESTACADO = new RegExp(
+  [
+    // Una ruta: trozos separados por barra, en cualquiera de las dos direcciones.
+    '(?:[\\w.@~-]+[\\\\/])+[\\w.@~-]+',
+    // Un nombre de fichero suelto, con su extension.
+    '\\b[\\w@-]+\\.[a-z]{1,5}\\b',
+    // Una opcion de consola. Solo cuenta al principio de una palabra, para no partir
+    // palabras que lleven un guion en medio.
+    '(?<=^|\\s)--?[\\w-]{2,}',
+    // Un patron de busqueda de ficheros.
+    '\\*\\*?/\\S*',
+  ].join('|'),
+  'g',
+);
+
+export function trozosDelPaso(texto: string): Array<{ texto: string; destacado: boolean }> {
+  const trozos: Array<{ texto: string; destacado: boolean }> = [];
+  let ultimo = 0;
+
+  for (const encontrado of texto.matchAll(TROZO_DESTACADO)) {
+    const desde = encontrado.index ?? 0;
+    if (desde > ultimo) trozos.push({ texto: texto.slice(ultimo, desde), destacado: false });
+    trozos.push({ texto: encontrado[0], destacado: true });
+    ultimo = desde + encontrado[0].length;
+  }
+
+  if (ultimo < texto.length) trozos.push({ texto: texto.slice(ultimo), destacado: false });
+  return trozos.length > 0 ? trozos : [{ texto, destacado: false }];
 }
 
 /**
@@ -83,7 +133,7 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
   const base = { id: evento.id, hora: hora(evento.created_at) };
 
   if (evento.type === 'run.started') {
-    return { ...base, texto: 'Empieza a trabajar', herramienta: null, esError: false };
+    return { ...base, texto: 'Empieza a trabajar', herramienta: null, esError: false, clase: 'hito' };
   }
 
   if (evento.type === 'run.finished') {
@@ -95,6 +145,7 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
       texto: estado === 'succeeded' ? `Termina: ${resumen}` : `Termina con ${estado}: ${resumen}`,
       herramienta: null,
       esError: estado !== 'succeeded',
+      clase: 'hito',
     };
   }
 
@@ -106,10 +157,18 @@ function pasoDelEvento(evento: SystemEvent, datos: Record<string, unknown>): Pas
       texto,
       herramienta: datos['tool'] ? String(datos['tool']) : null,
       esError: datos['is_error'] === true,
+      clase: claseDelProgreso(String(datos['kind'] ?? '')),
     };
   }
 
   return null;
+}
+
+/** Traduce la clase que publica el motor a la que usa el panel. */
+function claseDelProgreso(kind: string): ClaseDePaso {
+  if (kind === 'tool_use') return 'hace';
+  if (kind === 'tool_result') return 'recibe';
+  return 'dice';
 }
 
 interface Props {
@@ -195,10 +254,24 @@ export function PanelAgente({
           <p className="sin-pasos">Todavía no ha hecho nada.</p>
         ) : (
           pasos.map((paso) => (
-            <div key={paso.id} className={`paso-agente${paso.esError ? ' con-error' : ''}`}>
+            <div
+              key={paso.id}
+              className={`paso-agente${paso.esError ? ' con-error' : ''}`}
+              data-clase={paso.clase}
+            >
               <span className="hora">{paso.hora}</span>
               {paso.herramienta && <span className="herramienta">{paso.herramienta}</span>}
-              <span className="texto">{paso.texto}</span>
+              <span className="texto">
+                {trozosDelPaso(paso.texto).map((trozo, i) =>
+                  trozo.destacado ? (
+                    <span className="dato" key={i}>
+                      {trozo.texto}
+                    </span>
+                  ) : (
+                    <span key={i}>{trozo.texto}</span>
+                  ),
+                )}
+              </span>
             </div>
           ))
         )}

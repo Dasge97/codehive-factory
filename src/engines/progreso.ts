@@ -88,11 +88,38 @@ export function recortar(texto: string, maximo: number): string {
  * el panel solo interesa saber si fue bien y cuánto devolvió.
  */
 export function describirResultado(contenido: string, huboError: boolean): string {
-  const limpio = contenido.replace(/\s+/g, ' ').trim();
+  const util = sinRuidoDelShell(contenido);
+  const limpio = util.replace(/\s+/g, ' ').trim();
   if (!limpio) return huboError ? 'falla sin decir por qué' : 'sin salida';
 
   if (huboError) return recortar(limpio, 140);
 
-  const lineas = contenido.split('\n').length;
+  const lineas = util.split('\n').length;
   return lineas > 3 ? `${recortar(limpio, 80)} (${lineas} líneas)` : recortar(limpio, 120);
+}
+
+/**
+ * Quita los avisos que el shell escribe al arrancar, antes de ejecutar nada.
+ *
+ * Un shell mal configurado los repite en la salida de **cada** comando. Sin quitarlos, el
+ * panel del agente se llena de la misma línea una y otra vez y no se ve lo que de verdad
+ * hizo el comando. Un ejemplo real es un `.profile` que resulta ser una carpeta.
+ *
+ * Solo se quitan al principio de la salida, que es donde el shell los escribe. Una línea
+ * igual en medio de la salida es del comando y se conserva.
+ */
+const RUIDO_DE_ARRANQUE =
+  /^(?:[^\n:]*(?:bash|sh|zsh)(?:\.exe)?:\s.*(?:is a directory|No such file or directory|Permission denied|cannot execute)\s*)$/i;
+
+export function sinRuidoDelShell(salida: string): string {
+  const lineas = salida.split('\n');
+  let desde = 0;
+  while (desde < lineas.length) {
+    const linea = (lineas[desde] ?? '').trim();
+    if (linea === '' || RUIDO_DE_ARRANQUE.test(linea)) desde += 1;
+    else break;
+  }
+
+  // Si todo era ruido, la salida original manda: es mejor enseñar algo que nada.
+  return desde >= lineas.length ? salida : lineas.slice(desde).join('\n');
 }

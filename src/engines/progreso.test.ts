@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { describirResultado, describirUsoDeHerramienta, nombreCorto, recortar } from './progreso.js';
+import {
+  describirResultado,
+  describirUsoDeHerramienta,
+  nombreCorto,
+  recortar,
+  sinRuidoDelShell,
+} from './progreso.js';
 
 describe('descripción del uso de una herramienta', () => {
   it('dice qué fichero toca, no el objeto entero de argumentos', () => {
@@ -99,5 +105,44 @@ describe('resumen de un resultado', () => {
 
   it('un fallo sin salida se explica igual', () => {
     expect(describirResultado('   ', true)).toBe('falla sin decir por qué');
+  });
+
+  it('el aviso de arranque del shell no cuenta como salida', () => {
+    const salida = `/usr/bin/bash: /c/Users/x/.profile: is a directory
+Hola`;
+    expect(describirResultado(salida, false)).toBe('Hola');
+  });
+});
+
+describe('ruido de arranque del shell', () => {
+  it('quita el aviso que el shell repite en cada comando', () => {
+    const salida = `/usr/bin/bash: /c/Users/x/.profile: is a directory
+src/a.ts
+src/b.ts`;
+    expect(sinRuidoDelShell(salida)).toBe(`src/a.ts
+src/b.ts`);
+  });
+
+  it('quita varios avisos seguidos y las lineas en blanco de delante', () => {
+    const salida = `/bin/sh: /home/x/.bashrc: Permission denied
+
+bash: /etc/x: No such file or directory
+resultado`;
+    expect(sinRuidoDelShell(salida)).toBe('resultado');
+  });
+
+  it('un aviso igual en medio de la salida es del comando y se queda', () => {
+    const salida = `cp origen destino
+/usr/bin/bash: /tmp/x: is a directory`;
+    expect(sinRuidoDelShell(salida)).toBe(salida);
+  });
+
+  it('si toda la salida era ruido, se ensena tal cual en vez de nada', () => {
+    const salida = '/usr/bin/bash: /c/Users/x/.profile: is a directory';
+    expect(sinRuidoDelShell(salida)).toBe(salida);
+  });
+
+  it('una salida normal no se toca', () => {
+    expect(sinRuidoDelShell('todo correcto')).toBe('todo correcto');
   });
 });

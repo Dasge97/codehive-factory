@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Texto } from './Texto';
-import { PanelAgente, pasosPorAgente } from './PanelAgente';
+import { PanelAgente, pasosPorAgente, trozosDelPaso } from './PanelAgente';
 import type { AgentView } from '../api';
 
 describe('texto de los agentes', () => {
@@ -49,6 +49,36 @@ describe('texto de los agentes', () => {
   it('un asterisco suelto no rompe nada', () => {
     const { container } = render(<Texto>{'Multiplica 2 * 3 y dime el resultado.'}</Texto>);
     expect(container.textContent).toContain('2 * 3');
+  });
+});
+
+describe('resaltado dentro de un paso', () => {
+  const destacados = (texto: string) =>
+    trozosDelPaso(texto).filter((t) => t.destacado).map((t) => t.texto);
+
+  it('resalta la ruta de un fichero', () => {
+    expect(destacados('lee core/roles.ts para entender el reparto')).toEqual(['core/roles.ts']);
+  });
+
+  it('resalta un nombre de fichero suelto', () => {
+    expect(destacados('escribe README.md')).toEqual(['README.md']);
+  });
+
+  it('resalta las opciones de un comando', () => {
+    expect(destacados('npm run build --silent')).toContain('--silent');
+  });
+
+  it('una frase sin datos no resalta nada', () => {
+    expect(destacados('Empieza a trabajar')).toEqual([]);
+  });
+
+  it('el texto sale entero aunque se parta en trozos', () => {
+    const texto = 'edita src/core/db.ts y ejecuta npm test';
+    expect(trozosDelPaso(texto).map((t) => t.texto).join('')).toBe(texto);
+  });
+
+  it('no parte una palabra española con guion en medio', () => {
+    expect(destacados('revisa el paso-a-paso del flujo')).toEqual([]);
   });
 });
 
@@ -123,16 +153,33 @@ describe('color de cada agente', () => {
     expect(pasos.get('agt_1')![0]!.texto.endsWith('…')).toBe(true);
   });
 
+  it('cada paso dice de qué clase es, para pintarlo distinto', () => {
+    const evento = (kind: string, id: number) => ({
+      id,
+      project_id: 'prj_1',
+      type: 'run.progress',
+      task_id: 'tsk_1',
+      run_id: 'run_1',
+      agent_id: 'agt_1',
+      payload: JSON.stringify({ kind, text: 'algo' }),
+      created_at: new Date().toISOString(),
+    });
+
+    const pasos = pasosPorAgente([evento('tool_use', 1), evento('tool_result', 2), evento('message', 3)]);
+    expect(pasos.get('agt_1')!.map((p) => p.clase)).toEqual(['dice', 'recibe', 'hace']);
+  });
+
   it('el texto de un paso se puede leer entero, no recortado a una línea', () => {
     const largo = 'lee src/core/orchestrator.ts para entender cómo se reparte el trabajo';
-    render(
+    const { container } = render(
       <PanelAgente
         agente={agente()}
         tareas={[]}
-        pasos={[{ id: 1, hora: '12:00', texto: largo, herramienta: 'Read', esError: false }]}
+        pasos={[{ id: 1, hora: '12:00', texto: largo, herramienta: 'Read', esError: false, clase: 'hace' }]}
         alAbrirTarea={() => undefined}
       />,
     );
-    expect(screen.getByText(largo)).toBeDefined();
+    // El texto va partido en trozos para poder resaltar la ruta, pero está entero.
+    expect(container.querySelector('.paso-agente .texto')?.textContent).toBe(largo);
   });
 });

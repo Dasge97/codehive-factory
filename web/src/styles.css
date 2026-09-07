@@ -460,8 +460,60 @@ button {
   line-height: 1.45;
 }
 
+/*
+ * Cada clase de paso se pinta distinto, para poder recorrer el registro sin leerlo entero.
+ *
+ * Lo que el agente dice va en texto normal y es lo que más resalta. Lo que hace va con una
+ * marca a la izquierda del color de su rol. Lo que le devuelven va más apagado, porque es
+ * material de consulta y no una decisión suya.
+ */
+.paso-agente[data-clase='dice'] .texto {
+  color: var(--texto);
+}
+
+.paso-agente[data-clase='hace'] .texto {
+  border-left: 2px solid var(--borde-fuerte);
+  padding-left: 6px;
+}
+
+.paso-agente[data-clase='recibe'] .texto {
+  color: var(--texto-suave);
+  font-size: 11.5px;
+}
+
+.paso-agente[data-clase='hito'] .texto {
+  color: var(--texto-suave);
+  font-weight: 600;
+}
+
+/* La marca de un paso toma el color del rol del panel en el que está. */
+.agente-panel[data-rol='orquestador'] .paso-agente[data-clase='hace'] .texto { border-left-color: var(--rol-orquestador); }
+.agente-panel[data-rol='builder'] .paso-agente[data-clase='hace'] .texto { border-left-color: var(--rol-builder); }
+.agente-panel[data-rol='reviewer'] .paso-agente[data-clase='hace'] .texto { border-left-color: var(--rol-reviewer); }
+.agente-panel[data-rol='investigador'] .paso-agente[data-clase='hace'] .texto { border-left-color: var(--rol-investigador); }
+.agente-panel[data-rol='refactorer'] .paso-agente[data-clase='hace'] .texto { border-left-color: var(--rol-refactorer); }
+
+/*
+ * El dato sobre el que actúa el agente: el fichero, el comando, el patrón de búsqueda.
+ * Va en monoespaciado porque es texto literal, y con fondo para separarlo de la frase que
+ * lo rodea.
+ */
+.paso-agente .dato {
+  font-family: var(--fuente-mono);
+  font-size: 11px;
+  background: var(--superficie-2);
+  border-radius: 3px;
+  padding: 0 3px;
+  color: var(--acento-texto);
+}
+
 .paso-agente.con-error .texto {
   color: var(--blocked);
+}
+
+.paso-agente.con-error .dato {
+  color: var(--blocked);
+  background: var(--blocked-fondo);
 }
 
 /* ------------------------------------------------------------------ */

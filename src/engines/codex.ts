@@ -11,7 +11,7 @@ import type {
   EngineRunOutcome,
   EngineRunRequest,
 } from './types.js';
-import { describirUsoDeHerramienta, recortar } from './progreso.js';
+import { describirResultado, describirUsoDeHerramienta, recortar } from './progreso.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -299,26 +299,30 @@ export class CodexRunState {
     const i = item as Record<string, unknown>;
 
     if (i['type'] === 'command_execution') {
+      const fallo = i['status'] === 'failed';
       this.onProgress({
         kind: completado ? 'tool_result' : 'tool_use',
-        text: String(i['command'] ?? '').slice(0, 500),
+        text: completado
+          ? describirResultado(String(i['aggregated_output'] ?? i['output'] ?? ''), fallo)
+          : describirUsoDeHerramienta('Bash', { command: i['command'] }),
         tool: 'Bash',
-        isError: i['status'] === 'failed',
+        isError: fallo,
       });
       return;
     }
 
     if (i['type'] === 'mcp_tool_call') {
+      const herramienta = `${String(i['server'] ?? 'mcp')}.${String(i['tool'] ?? '')}`;
       this.onProgress({
         kind: completado ? 'tool_result' : 'tool_use',
-        text: JSON.stringify(i['arguments'] ?? {}).slice(0, 500),
-        tool: `${String(i['server'] ?? 'mcp')}.${String(i['tool'] ?? '')}`,
+        text: describirUsoDeHerramienta(herramienta, i['arguments']),
+        tool: herramienta,
       });
       return;
     }
 
     if (completado && typeof i['text'] === 'string') {
-      this.onProgress({ kind: 'message', text: i['text'] });
+      this.onProgress({ kind: 'message', text: recortar(i['text'], 400) });
     }
   }
 
