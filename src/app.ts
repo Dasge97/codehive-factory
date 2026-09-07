@@ -20,7 +20,7 @@ import { EngineRegistry } from './engines/registry.js';
 import type { Engine } from './engines/types.js';
 import { createApi } from './server/api.js';
 import { Supervisor, recoverInterruptedRuns } from './workers/supervisor.js';
-import { initRepo, isGitRepo } from './workers/git.js';
+import { isGitRepo } from './workers/git.js';
 
 /** Contenido del fichero `codehive.project.json` que lleva cada proyecto gestionado. */
 export const projectConfigSchema = z.object({
@@ -192,40 +192,16 @@ export function dejarSoloEnMarcha(
   return requireProject(db, projectId);
 }
 
-/**
- * Deja una carpeta lista para trabajar.
- *
- * Se puede abrir cualquier carpeta. Si no es un repositorio de Git, se crea uno con un
- * primer commit que recoge lo que haya dentro.
- *
- * El commit no es un adorno. Cada tarea trabaja en un `git worktree` sacado de la rama
- * principal, y un repositorio sin ningún commit no puede crear worktrees. Sin contenido en
- * ese commit, además, el worktree saldría vacío y el agente no vería el proyecto.
- */
-async function prepararCarpeta(
-  ruta: string,
-  mainBranch: string,
-  confirmado = false,
-): Promise<void> {
-  if (await isGitRepo(ruta)) {
-    // Un repositorio recién creado a mano puede no tener ningún commit todavía.
-    await initRepo(ruta, mainBranch, { confirmado });
-    return;
-  }
-
-  const creado = await initRepo(ruta, mainBranch, { confirmado });
-  console.log(
-    `${ruta} no era un repositorio de Git. Se ha creado uno en la rama ${creado.branch}` +
-      `${creado.files > 0 ? ` con los ${creado.files} ficheros que había dentro` : ', vacío'}.`,
-  );
-}
-
 /** Monta el sistema completo: base de datos, motor, supervisor y servidor web. */
 export async function createApp(config: AppConfig): Promise<App> {
-  // Cualquier carpeta sirve. Si todavía no es un repositorio de Git, se convierte en uno:
-  // el sistema entero se apoya en ramas y worktrees, y no tiene sentido hacer que la
-  // persona salga a la terminal para algo que se hace en dos órdenes.
-  await prepararCarpeta(config.repoPath, readProjectConfig(config.repoPath).main_branch, true);
+  // Abrir una carpeta no la toca. Si no es un repositorio de Git, se dice y ya está: los
+  // agentes que escriben código necesitarán uno, pero mirar, preguntar o investigar no.
+  if (!(await isGitRepo(config.repoPath))) {
+    console.log(
+      `${config.repoPath} no es un repositorio de Git. Se puede abrir igual, pero las tareas ` +
+        'que escriben código necesitan uno, porque cada una trabaja en su propia rama.',
+    );
+  }
 
   // Si falta un fichero de instrucciones, es mejor no arrancar que descubrirlo a mitad de
   // una tarea, cuando ya se ha gastado una ejecución del motor.
@@ -255,15 +231,16 @@ export async function createApp(config: AppConfig): Promise<App> {
    * Registra la carpeta si es la primera vez que se abre, y la reutiliza si ya estaba:
    * volver a una carpeta anterior recupera su equipo, sus tareas y su conversación.
    */
-  async function abrirCarpeta(ruta: string, confirmado = false): Promise<Project> {
+  async function abrirCarpeta(ruta: string): Promise<Project> {
     const destino = resolve(ruta);
 
     if (!existsSync(destino)) {
       throw new Error(`La carpeta ${destino} no existe.`);
     }
 
+    // Abrir una carpeta no escribe nada dentro de ella. Ni un `git init`, ni un commit,
+    // ni un fichero. Elegir sobre qué trabajar es elegir, no preparar.
     const configuracion = readProjectConfig(destino);
-    await prepararCarpeta(destino, configuracion.main_branch, confirmado);
 
     const abierto = ensureProject(
       db,

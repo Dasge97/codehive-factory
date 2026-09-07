@@ -258,35 +258,15 @@ export interface TaskDetail {
 // Llamadas
 // ---------------------------------------------------------------------------
 
-/**
- * Un error del servidor que además pide una confirmación.
- *
- * Se usa cuando la respuesta no es «no se puede» sino «se puede, pero conviene que lo
- * sepas antes». La web enseña el motivo y un botón para seguir.
- */
-export class NecesitaConfirmar extends Error {
-  constructor(
-    mensaje: string,
-    readonly files: number,
-  ) {
-    super(mensaje);
-    this.name = 'NecesitaConfirmar';
-  }
-}
-
 async function pedir<T>(ruta: string, opciones?: RequestInit): Promise<T> {
   const respuesta = await fetch(`/api${ruta}`, {
     headers: { 'Content-Type': 'application/json' },
     ...opciones,
   });
-  const cuerpo = (await respuesta.json().catch(() => null)) as
-    | { error?: string; needs_confirmation?: boolean; files?: number }
-    | null;
+  const cuerpo = (await respuesta.json().catch(() => null)) as { error?: string } | null;
 
   if (!respuesta.ok) {
-    const mensaje = cuerpo?.error ?? `Error ${respuesta.status}`;
-    if (cuerpo?.needs_confirmation) throw new NecesitaConfirmar(mensaje, cuerpo.files ?? 0);
-    throw new Error(mensaje);
+    throw new Error(cuerpo?.error ?? `Error ${respuesta.status}`);
   }
   return cuerpo as T;
 }
@@ -311,10 +291,10 @@ export const api = {
     }),
 
   /** Abre una carpeta. A partir de aquí el equipo trabaja sobre ella. */
-  abrirCarpeta: (ruta: string, confirm = false) =>
+  abrirCarpeta: (ruta: string) =>
     pedir<ProyectoRegistrado>('/projects/open', {
       method: 'POST',
-      body: JSON.stringify({ path: ruta, confirm }),
+      body: JSON.stringify({ path: ruta }),
     }),
   proyecto: (id: string) => pedir<ProjectOverview>(`/projects/${id}`),
   tareas: (id: string) => pedir<Task[]>(`/projects/${id}/tasks`),

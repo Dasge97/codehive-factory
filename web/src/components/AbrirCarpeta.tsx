@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NecesitaConfirmar, api, type CarpetaListada, type ProyectoRegistrado } from '../api';
+import { api, type CarpetaListada, type ProyectoRegistrado } from '../api';
 
 interface Props {
   /** Carpeta que está abierta ahora, por la que empieza el explorador. */
@@ -22,9 +22,7 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
   const [recientes, setRecientes] = useState<ProyectoRegistrado[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
-  // Una carpeta con miles de ficheros se puede abrir igual, pero antes se dice lo que va a
-  // pasar: el primer commit se los lleva todos y tarda minutos.
-  const [confirmar, setConfirmar] = useState<{ ruta: string; mensaje: string } | null>(null);
+
 
   const explorar = useCallback(async (ruta?: string) => {
     setAviso(null);
@@ -67,18 +65,13 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
     }
   }
 
-  async function abrir(ruta: string, confirmado = false) {
+  async function abrir(ruta: string) {
     setTrabajando(true);
     setAviso(null);
-    setConfirmar(null);
     try {
-      alAbrir(await api.abrirCarpeta(ruta, confirmado));
+      alAbrir(await api.abrirCarpeta(ruta));
     } catch (e) {
-      if (e instanceof NecesitaConfirmar) {
-        setConfirmar({ ruta, mensaje: e.message });
-      } else {
-        setAviso(e instanceof Error ? e.message : String(e));
-      }
+      setAviso(e instanceof Error ? e.message : String(e));
     } finally {
       setTrabajando(false);
     }
@@ -103,27 +96,6 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
         <div className="contenido">
           {aviso && <div className="aviso desconectado">{aviso}</div>}
 
-          {confirmar && (
-            <div className="aviso">
-              <span>
-                {confirmar.mensaje} Tardará varios minutos y dejará todo dentro del
-                repositorio. Si la carpeta tiene varios proyectos sueltos, o dependencias
-                sin ignorar, seguramente quieras abrir una carpeta más concreta.
-              </span>
-              <div className="acciones">
-                <button
-                  className="boton pequeno"
-                  disabled={trabajando}
-                  onClick={() => void abrir(confirmar.ruta, true)}
-                >
-                  Abrirla igualmente
-                </button>
-                <button className="boton pequeno" onClick={() => setConfirmar(null)}>
-                  Dejarlo
-                </button>
-              </div>
-            </div>
-          )}
 
           {recientes.length > 0 && (
             <div className="bloque">
@@ -150,8 +122,8 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
           <div className="bloque">
             <h3>Buscar en el disco</h3>
             <p style={{ fontSize: 12.5, color: 'var(--texto-suave)' }}>
-              Se puede abrir cualquier carpeta. Las marcadas como repositorio ya lo son; en
-              las demás se crea uno al abrirlas.
+              Se puede abrir cualquier carpeta, y abrirla no le hace nada. La etiqueta de
+              repositorio solo dice cuáles ya tienen Git.
             </p>
             <p style={{ fontSize: 12.5, color: 'var(--texto-suave)' }}>
               El explorador de Windows se abre en el equipo donde corre el sistema. Desde el
@@ -203,12 +175,11 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
                 </button>
 
                 {!carpeta.is_git_repo && (
-                  // Se puede abrir igual. Solo conviene saber que al hacerlo la carpeta
-                  // pasa a ser un repositorio, porque el sistema trabaja con ramas.
+                  // Abrirla no la toca. Solo conviene saber que las tareas que escriben
+                  // código necesitan un repositorio, porque cada una trabaja en su rama.
                   <p className="nota" style={{ marginTop: 6 }}>
-                    Todavía no es un repositorio de Git. Al abrirla se crea uno con lo que
-                    haya dentro, que es lo que necesitan los agentes para trabajar cada
-                    tarea en su propia rama.
+                    No es un repositorio de Git. Se abre igual y no se le toca nada. Las
+                    tareas que escriban código sí necesitarán uno.
                   </p>
                 )}
 
@@ -236,11 +207,7 @@ Pulsa para entrar.`}
                         className="boton pequeno principal abrir-fila"
                         disabled={trabajando}
                         onClick={() => void abrir(e.path)}
-                        title={
-                          e.is_git_repo
-                            ? `Trabajar sobre ${e.path}`
-                            : `Trabajar sobre ${e.path}. Al abrirla se crea el repositorio de Git.`
-                        }
+                        title={`Trabajar sobre ${e.path}`}
                       >
                         Abrir
                       </button>

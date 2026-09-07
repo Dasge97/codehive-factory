@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createApp, type App } from '../app.js';
@@ -320,7 +320,7 @@ describe('abrir otra carpeta', () => {
     expect((await get('/api/projects')).body).toHaveLength(2);
   });
 
-  it('una carpeta que no es un repositorio de Git se abre igual, creando uno', async () => {
+  it('una carpeta que no es un repositorio de Git se abre igual, y no se le toca nada', async () => {
     const suelta = mkdtempSync(join(tmpdir(), 'chf-suelta-'));
     writeFileSync(join(suelta, 'index.js'), 'console.log(1);');
 
@@ -330,11 +330,10 @@ describe('abrir otra carpeta', () => {
       expect(r.status).toBe(200);
       expect(r.body.repo_path).toBe(resolve(suelta));
 
-      // La carpeta pasa a ser un repositorio con su primer commit, que es lo que necesitan
-      // los worktrees de cada tarea.
-      expect(await isGitRepo(suelta)).toBe(true);
-      const enElCommit = await git(suelta, ['ls-tree', '-r', '--name-only', 'HEAD']);
-      expect(enElCommit).toContain('index.js');
+      // Elegir sobre qué carpeta trabajar no escribe nada dentro de ella. Ni un git init,
+      // ni un commit, ni un fichero.
+      expect(await isGitRepo(suelta)).toBe(false);
+      expect(readdirSync(suelta)).toEqual(['index.js']);
     } finally {
       rmSync(suelta, { recursive: true, force: true });
     }
