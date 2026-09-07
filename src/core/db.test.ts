@@ -121,7 +121,11 @@ describe('la migración que amplía los roles conserva los datos', () => {
 
   it('deja intactas las tareas, las ejecuciones y los bloqueos', () => {
     const db = baseAnterior();
-    expect(applyMigrations(db)).toEqual([3, 4]);
+    // Se aplican todas las que faltaban, sean las que sean: la prueba es sobre los datos,
+    // no sobre cuántas migraciones hay.
+    expect(applyMigrations(db)).toEqual(
+      MIGRATIONS.filter((m) => m.version >= 3).map((m) => m.version),
+    );
 
     const cuenta = (tabla: string) =>
       (db.prepare(`SELECT COUNT(*) AS n FROM ${tabla}`).get() as { n: number }).n;

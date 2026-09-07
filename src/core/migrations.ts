@@ -410,4 +410,35 @@ ALTER TABLE projects ADD COLUMN protected_paths TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE projects ADD COLUMN use_personal_config INTEGER NOT NULL DEFAULT 0;
 `,
   },
+
+  {
+    version: 5,
+    name: 'turnos del orquestador',
+    sql: `
+-- Cada vez que el creador le escribe al orquestador, el motor se ejecuta y consume.
+--
+-- No va en la tabla runs porque un turno del orquestador no es la ejecución de una tarea:
+-- no tiene tarea, ni worktree, ni commit. La columna task_id de runs no admite nulos, y
+-- rehacer esa tabla para meter aquí una fila sin tarea no compensa.
+--
+-- Se guarda el tamaño del encargo en caracteres porque es el dato que dice si el coste
+-- crece, y se mide sin depender de lo que informe el motor.
+CREATE TABLE orchestrator_turns (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  engine        TEXT NOT NULL,
+  model         TEXT,
+  status        TEXT NOT NULL,
+  prompt_chars  INTEGER NOT NULL,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  cost_usd      REAL,
+  error         TEXT,
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT NOT NULL
+);
+
+CREATE INDEX idx_orchestrator_turns ON orchestrator_turns(project_id, started_at);
+`,
+  },
 ];

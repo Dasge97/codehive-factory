@@ -1,5 +1,11 @@
-import { useState } from 'react';
-import { api, type AgentView, type MotoresDisponibles, type ProjectOverview } from '../api';
+import { useEffect, useState } from 'react';
+import {
+  api,
+  type AgentView,
+  type MotoresDisponibles,
+  type ProjectOverview,
+  type TurnosDelOrquestador,
+} from '../api';
 import { NOMBRE_ROL } from './Equipo';
 
 interface Props {
@@ -75,6 +81,8 @@ export function Ajustes({ resumen, agentes, motores, alCerrar, alRecargar }: Pro
               {enPausa ? 'Reanudar el proyecto' : 'Pausar el proyecto'}
             </button>
           </div>
+
+          <CosteDelOrquestador projectId={resumen.project.id} />
 
           <div className="bloque">
             <h3>Configuración de los motores</h3>
@@ -227,6 +235,54 @@ export function Ajustes({ resumen, agentes, motores, alCerrar, alRecargar }: Pro
           {aviso && <div className="aviso desconectado">{aviso}</div>}
         </div>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Lo que cuesta hablar con el orquestador.
+ *
+ * El orquestador no continúa ninguna sesión de Claude: en cada mensaje se le manda el
+ * estado del proyecto entero. Por eso el tamaño del encargo crece con el número de
+ * tareas, y por eso interesa tenerlo a la vista.
+ *
+ * Se pide al abrir los ajustes, no con el resto del estado, porque no hace falta para
+ * nada de lo que se ve en la pantalla principal.
+ */
+function CosteDelOrquestador({ projectId }: { projectId: string }) {
+  const [datos, setDatos] = useState<TurnosDelOrquestador | null>(null);
+
+  useEffect(() => {
+    api.turnosDelOrquestador(projectId).then(setDatos).catch(() => setDatos(null));
+  }, [projectId]);
+
+  if (!datos || datos.resumen.turnos === 0) return null;
+
+  const { resumen } = datos;
+  const miles = (n: number | null) => (n === null ? '—' : n.toLocaleString('es-ES'));
+
+  return (
+    <div className="bloque">
+      <h3>Lo que cuesta hablar con el orquestador</h3>
+
+      <dl className="lista-datos">
+        <dt>Turnos</dt>
+        <dd>{resumen.turnos}</dd>
+        <dt>Último encargo</dt>
+        <dd>{miles(resumen.ultimo_encargo)} caracteres</dd>
+        <dt>Encargo medio</dt>
+        <dd>{miles(resumen.encargo_medio)} caracteres</dd>
+        <dt>Entrada media</dt>
+        <dd>{miles(resumen.entrada_media)} tokens</dd>
+        <dt>Salida media</dt>
+        <dd>{miles(resumen.salida_media)} tokens</dd>
+      </dl>
+
+      <p className="nota">
+        En cada mensaje tuyo se le manda el estado del proyecto entero, así que el encargo
+        crece con el número de tareas. Los tokens solo llegan de los motores que los
+        informan.
+      </p>
     </div>
   );
 }

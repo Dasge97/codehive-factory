@@ -18,6 +18,7 @@ export const ID_PREFIX = {
   worker: 'wkr',
   agentMessage: 'amsg',
   notice: 'ntc',
+  orchestratorTurn: 'trn',
 } as const;
 
 /** Nombre del tipo de entidad, por ejemplo 'task'. */

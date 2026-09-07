@@ -169,6 +169,33 @@ export interface CarpetaListada {
   native_picker: boolean;
 }
 
+/**
+ * Lo que cuesta hablar con el orquestador.
+ *
+ * Cada mensaje lanza una ejecución del motor con el estado del proyecto entero, así que el
+ * tamaño del encargo crece con el número de tareas. Los tokens solo llegan de los motores
+ * que los informan; Codex no lo hace.
+ */
+export interface TurnosDelOrquestador {
+  resumen: {
+    turnos: number;
+    ultimo_encargo: number | null;
+    encargo_medio: number | null;
+    entrada_media: number | null;
+    salida_media: number | null;
+    coste_total: number | null;
+  };
+  turnos: Array<{
+    id: string;
+    engine: string;
+    status: string;
+    prompt_chars: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    started_at: string;
+  }>;
+}
+
 export interface ProjectOverview {
   project: {
     id: string;
@@ -293,6 +320,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ use_personal_config: usar }),
     }),
+
+  turnosDelOrquestador: (id: string) =>
+    pedir<TurnosDelOrquestador>(`/projects/${id}/orchestrator/turns`),
 
   cambiarModo: (id: string, mode: ProjectMode) =>
     pedir<{ mode: ProjectMode }>(`/projects/${id}/mode`, {

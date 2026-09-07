@@ -19,6 +19,7 @@ import {
   updateProject,
 } from '../core/projects.js';
 import { queueForRole, razonDeEspera } from '../core/queue.js';
+import { listarTurnos, resumenDeTurnos } from '../core/orchestrator-turns.js';
 import { listFindings, listIncrements, readyToIntegrate } from '../core/review.js';
 import { RuleError, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
 import { now } from '../shared/ids.js';
@@ -252,6 +253,13 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
     // las tareas se quedan donde están.
     const pausar = req.body?.paused !== false;
     res.json(setProjectStatus(db, param(req, 'id'), pausar ? 'paused' : 'active'));
+  });
+
+  app.get('/api/projects/:id/orchestrator/turns', (req, res) => {
+    res.json({
+      resumen: resumenDeTurnos(db, req.params.id),
+      turnos: listarTurnos(db, req.params.id, 20),
+    });
   });
 
   app.post('/api/projects/:id/mode', (req, res) => {

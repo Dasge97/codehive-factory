@@ -13,7 +13,8 @@ import {
 } from '../core/orchestrator.js';
 import { requireTask } from '../core/tasks.js';
 import { LEASE_RENEW_MS, reclaimExpiredLeases, renewLease } from '../core/leases.js';
-import { newId } from '../shared/ids.js';
+import { newId, now } from '../shared/ids.js';
+import { guardarTurno } from '../core/orchestrator-turns.js';
 import type { Agent, AgentRole } from '../shared/types.js';
 import type { Engine, EngineHandle } from '../engines/types.js';
 import type { EngineRegistry } from '../engines/registry.js';
@@ -325,6 +326,7 @@ export class Supervisor {
       const snapshot = projectSnapshot(this.db, projectId);
       const ultimo = [...snapshot.chat].reverse().find((m) => m.author === 'creator');
       const prompt = renderOrchestratorPrompt(snapshot, ultimo?.body ?? 'Revisa el estado y decide qué hace falta.');
+      const empezo = now();
 
       appendEvent(this.db, this.bus, {
         project_id: projectId,
@@ -369,6 +371,19 @@ export class Supervisor {
       // cualquier otra ejecución. Es lo que mantiene la cifra al día: se habla con el
       // orquestador mucho más a menudo de lo que terminan las tareas.
       saveUsage(this.db, this.bus, this.motorDe(agent).name, outcome);
+
+      guardarTurno(this.db, {
+        project_id: projectId,
+        engine: this.motorDe(agent).name,
+        model: agent.model,
+        status: outcome.status,
+        prompt_chars: prompt.length,
+        input_tokens: outcome.inputTokens,
+        output_tokens: outcome.outputTokens,
+        cost_usd: outcome.costUsd,
+        error: outcome.error,
+        started_at: empezo,
+      });
 
       if (outcome.status === 'cancelled') {
         postChatMessage(
