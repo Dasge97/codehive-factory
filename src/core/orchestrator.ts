@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { Db } from './db.js';
 import { EventBus, appendEvent } from './events.js';
 import { agentForRole, currentDecisions, currentRevision, listAgents, recordDecision, requireProject, setProjectGoal } from './projects.js';
-import { blockingFindings } from './review.js';
+import { blockingFindings, listFindings } from './review.js';
+import { integrableTasks } from './integration.js';
 import { createTask, listTasks, requireTask, setPriority, setStatus } from './tasks.js';
 import { queueForRole, razonDeEspera } from './queue.js';
 import { newId, now } from '../shared/ids.js';
@@ -151,6 +152,31 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
 // Estado que se entrega al orquestador
 // ---------------------------------------------------------------------------
 
+/** Cuánto de lo que escribió un agente cabe en el encargo del orquestador. */
+const LARGO_DEL_RESULTADO = 400;
+
+/** Lo que escribió el agente al terminar la última ejecución de una tarea. */
+function ultimoResultado(db: Db, taskId: string): string | null {
+  const fila = db
+    .prepare(
+      `SELECT summary FROM runs
+       WHERE task_id = ? AND summary IS NOT NULL AND summary <> ''
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(taskId) as { summary: string } | undefined;
+  return fila?.summary ?? null;
+}
+
+/** Recorta un texto sin cortar a mitad de palabra si se puede evitar. */
+function recortar(texto: string | null, maximo: number): string | null {
+  if (!texto) return null;
+  const limpio = texto.replace(/\s+/g, ' ').trim();
+  if (limpio.length <= maximo) return limpio;
+
+  const corte = limpio.lastIndexOf(' ', maximo);
+  return `${limpio.slice(0, corte > maximo * 0.6 ? corte : maximo)}…`;
+}
+
 export interface ProjectSnapshot {
   goal: string | null;
   revision: number;
@@ -165,7 +191,24 @@ export interface ProjectSnapshot {
     blocked_reason: string | null;
     waiting_for: string | null;
     open_blockers: number;
+    /**
+     * Lo que el agente escribió al terminar su última ejecución.
+     *
+     * Sin esto, el orquestador ve que una tarea está hecha pero no qué se hizo, así que
+     * no puede contárselo al creador ni decidir qué falta.
+     */
+    last_result: string | null;
   }>;
+  /** Hallazgos abiertos del reviewer, con lo que hace falta para darlos por resueltos. */
+  findings: Array<{
+    task_id: string;
+    task_title: string;
+    severity: string;
+    title: string;
+    resolution: string;
+  }>;
+  /** Trabajo terminado y revisado que espera a que el creador lo integre. */
+  integrable: Array<{ id: string; title: string; branch: string }>;
   team: Array<{ name: string; role: AgentRole; busy: boolean; queue: number }>;
   /** Modo de trabajo del proyecto: en estricto se recorre la cadena entera. */
   mode: ProjectMode;
@@ -177,19 +220,32 @@ export interface ProjectSnapshot {
 export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): ProjectSnapshot {
   const project = requireProject(db, projectId);
 
-  const tareas = listTasks(db, projectId)
-    .filter((t) => t.status !== 'cancelled')
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      kind: t.kind,
-      role: t.required_role,
-      status: t.status,
-      priority: t.priority,
-      blocked_reason: t.blocked_reason,
-      waiting_for: t.status === 'ready' ? razonDeEspera(db, t.id) : null,
-      open_blockers: blockingFindings(db, t.id).length,
-    }));
+  const abiertas = listTasks(db, projectId).filter((t) => t.status !== 'cancelled');
+
+  const tareas = abiertas.map((t) => ({
+    id: t.id,
+    title: t.title,
+    kind: t.kind,
+    role: t.required_role,
+    status: t.status,
+    priority: t.priority,
+    blocked_reason: t.blocked_reason,
+    waiting_for: t.status === 'ready' ? razonDeEspera(db, t.id) : null,
+    open_blockers: blockingFindings(db, t.id).length,
+    last_result: recortar(ultimoResultado(db, t.id), LARGO_DEL_RESULTADO),
+  }));
+
+  const hallazgos = abiertas.flatMap((t) =>
+    listFindings(db, t.id)
+      .filter((f) => f.status === 'open')
+      .map((f) => ({
+        task_id: t.id,
+        task_title: t.title,
+        severity: f.severity,
+        title: f.title,
+        resolution: f.resolution,
+      })),
+  );
 
   const equipo = listAgents(db, projectId).map((a) => {
     const ocupado = db
@@ -218,6 +274,12 @@ export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): Proj
   return {
     goal: project.goal,
     mode: project.mode,
+    findings: hallazgos,
+    integrable: integrableTasks(db, projectId).map((t) => ({
+      id: t.id,
+      title: t.title,
+      branch: t.branch,
+    })),
     revision: currentRevision(db, projectId),
     decisions: currentDecisions(db, projectId).map((d) => ({ title: d.title, body: d.body, revision: d.revision })),
     tasks: tareas,
@@ -256,12 +318,35 @@ export function renderOrchestratorPrompt(snapshot: ProjectSnapshot, mensajeNuevo
               t.waiting_for ? `esperando: ${t.waiting_for}` : null,
               t.open_blockers > 0 ? `${t.open_blockers} hallazgos bloqueantes` : null,
             ].filter(Boolean);
-            return `- [${t.id}] ${t.title} — ${t.kind}/${t.role}, estado ${t.status}, prioridad ${t.priority}${notas.length ? `. ${notas.join('. ')}` : ''}`;
+            const cabecera = `- [${t.id}] ${t.title} — ${t.kind}/${t.role}, estado ${t.status}, prioridad ${t.priority}${notas.length ? `. ${notas.join('. ')}` : ''}`;
+
+            // Lo que escribió el agente al terminar va en su propia línea, sangrada, para
+            // que se distinga de los datos de la tarea.
+            return t.last_result ? `${cabecera}\n  Dijo el agente: ${t.last_result}` : cabecera;
           })
           .join('\n'),
     );
   } else {
     partes.push('\n## Tareas\nNo hay ninguna tarea todavía.');
+  }
+
+  if (snapshot.findings.length > 0) {
+    partes.push(
+      '\n## Hallazgos abiertos del reviewer\n' +
+        snapshot.findings
+          .map(
+            (f) =>
+              `- [${f.task_id}] ${f.task_title} — ${f.severity}: ${f.title}. Se da por resuelto cuando: ${f.resolution}`,
+          )
+          .join('\n'),
+    );
+  }
+
+  if (snapshot.integrable.length > 0) {
+    partes.push(
+      '\n## Trabajo revisado que espera a que el creador lo integre\n' +
+        snapshot.integrable.map((t) => `- [${t.id}] ${t.title} — rama ${t.branch}`).join('\n'),
+    );
   }
 
   partes.push(
