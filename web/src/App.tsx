@@ -35,6 +35,9 @@ export function App() {
   // pantalla es para los agentes.
   const [trabajoAbierto, setTrabajoAbierto] = useState(false);
   const [seccion, setSeccion] = useState<SeccionMovil>('pedir');
+  // Todos los agentes ocupan lo mismo. El que pulsas crece y se pone delante; los demás
+  // se quedan atenuados detrás, para poder leer o escribir sin que estorbe el resto.
+  const [foco, setFoco] = useState<string | null>(null);
   const [verTablero, setVerTablero] = useState(false);
   // El borrador vive aquí para que no se pierda al cambiar de sección en el móvil.
   const [borrador, setBorrador] = useState('');
@@ -127,6 +130,16 @@ export function App() {
     else raiz.setAttribute('data-tema', tema);
   }, [tema]);
 
+  // --------------------------------------------------------------- foco
+
+  useEffect(() => {
+    function alPulsar(evento: KeyboardEvent) {
+      if (evento.key === 'Escape') setFoco(null);
+    }
+    window.addEventListener('keydown', alPulsar);
+    return () => window.removeEventListener('keydown', alPulsar);
+  }, []);
+
   // -------------------------------------------------------------- acciones
 
   async function abrirTarea(taskId: string) {
@@ -155,6 +168,10 @@ export function App() {
 
   const orquestador = agentes.find((a) => a.role === 'orchestrator');
   const equipo = agentes.filter((a) => a.role !== 'orchestrator');
+
+  // El chat es el panel del orquestador. Si el proyecto todavía no tiene ninguno, la caja
+  // sigue estando y se puede enfocar igual.
+  const idDelChat = orquestador?.id ?? 'chat';
 
   // El servidor dice si el orquestador tiene un turno en marcha; la web no lo adivina.
   const orquestadorPensando = resumen?.orchestrator_busy ?? false;
@@ -262,57 +279,46 @@ export function App() {
         )}
       </div>
 
-      <div className="cuerpo" data-seccion={seccion}>
-        <div className="columna-equipo izquierda">
-          {equipo.slice(0, Math.ceil(equipo.length / 2)).map((agente) => (
-            <PanelAgente
-              key={agente.id}
-              agente={agente}
-              tareas={tareas}
-              pasos={pasos.get(agente.id) ?? []}
-              alAbrirTarea={(id) => void abrirTarea(id)}
-            />
-          ))}
-        </div>
+      {/*
+        Una sola rejilla: cada agente ocupa lo mismo, el orquestador incluido. Pulsar en
+        el hueco entre paneles quita el foco y todos vuelven a verse igual.
+      */}
+      <div
+        className={`cuerpo${foco ? ' con-foco' : ''}`}
+        data-seccion={seccion}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) setFoco(null);
+        }}
+      >
+        <Chat
+          mensajes={mensajes}
+          alEnviar={enviarMensaje}
+          borrador={borrador}
+          alCambiarBorrador={setBorrador}
+          proyecto={resumen.project}
+          pensando={orquestadorPensando}
+          ultimoPaso={ultimoPasoOrquestador}
+          paradaPedida={paradaPedida}
+          agente={orquestador ?? null}
+          enfocado={foco === idDelChat}
+          alEnfocar={() => setFoco(idDelChat)}
+          alParar={() => {
+            setParadaPedida(true);
+            void api.pararOrquestador(resumen.project.id).catch(() => setParadaPedida(false));
+          }}
+        />
 
-        <div className="columna-centro">
-          <Chat
-            mensajes={mensajes}
-            alEnviar={enviarMensaje}
-            borrador={borrador}
-            alCambiarBorrador={setBorrador}
-            proyecto={resumen.project}
-            pensando={orquestadorPensando}
-            ultimoPaso={ultimoPasoOrquestador}
-            paradaPedida={paradaPedida}
-            alParar={() => {
-              setParadaPedida(true);
-              void api.pararOrquestador(resumen.project.id).catch(() => setParadaPedida(false));
-            }}
+        {equipo.map((agente) => (
+          <PanelAgente
+            key={agente.id}
+            agente={agente}
+            tareas={tareas}
+            pasos={pasos.get(agente.id) ?? []}
+            alAbrirTarea={(id) => void abrirTarea(id)}
+            enfocado={foco === agente.id}
+            alEnfocar={() => setFoco(agente.id)}
           />
-
-          {orquestador && (pasos.get(orquestador.id)?.length ?? 0) > 0 && (
-            <PanelAgente
-              agente={orquestador}
-              tareas={tareas}
-              pasos={pasos.get(orquestador.id) ?? []}
-              alAbrirTarea={(id) => void abrirTarea(id)}
-              compacto
-            />
-          )}
-        </div>
-
-        <div className="columna-equipo derecha">
-          {equipo.slice(Math.ceil(equipo.length / 2)).map((agente) => (
-            <PanelAgente
-              key={agente.id}
-              agente={agente}
-              tareas={tareas}
-              pasos={pasos.get(agente.id) ?? []}
-              alAbrirTarea={(id) => void abrirTarea(id)}
-            />
-          ))}
-        </div>
+        ))}
       </div>
 
       {/*

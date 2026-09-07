@@ -292,6 +292,22 @@ describe('chat con el orquestador', () => {
     expect(screen.getByText(PROYECTO_DE_PRUEBA.repo_path)).toBeDefined();
     expect(screen.getByText(/Nada llega a la rama main sin que tú lo confirmes/)).toBeDefined();
   });
+
+  it('con su agente, el chat se ve como un panel más del equipo', () => {
+    const orquestador: AgentView = {
+      id: 'agt_0', name: 'Orquestador', role: 'orchestrator', engine: 'claude_code', model: null,
+      allowed_tools: [], max_workers: 1, enabled: 1, busy_workers: 0, current_tasks: [], queue_length: 0,
+    };
+
+    const { container } = render(
+      <Chat mensajes={[]} alEnviar={async () => undefined} borrador="" alCambiarBorrador={() => undefined} proyecto={PROYECTO_DE_PRUEBA} agente={orquestador} />,
+    );
+
+    const panel = container.querySelector('.agente-panel.chat');
+    expect(panel?.getAttribute('data-rol')).toBe('orquestador');
+    expect(screen.getByText('Orquestador')).toBeDefined();
+    expect(screen.getByText('Orquestación · claude_code')).toBeDefined();
+  });
 });
 
 describe('actividad', () => {

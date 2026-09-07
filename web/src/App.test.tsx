@@ -279,6 +279,54 @@ describe('pantalla principal', () => {
 
 });
 
+describe('foco en un agente', () => {
+  const paneles = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('.cuerpo > .agente-panel'));
+
+  it('todos los agentes están en la misma rejilla, el chat incluido', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText(/Construcción · claude_code/)).toBeDefined());
+
+    // El chat, el builder y el reviewer: tres paneles hermanos, sin columnas aparte.
+    expect(paneles(container)).toHaveLength(3);
+    expect(container.querySelector('.columna-equipo')).toBeNull();
+  });
+
+  it('pulsar un panel lo pone delante y atenúa a los demás', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
+
+    expect(container.querySelector('.cuerpo.con-foco')).toBeNull();
+
+    await userEvent.click(screen.getByText('Builder'));
+
+    expect(container.querySelector('.cuerpo.con-foco')).not.toBeNull();
+    const enfocados = paneles(container).filter((p) => p.classList.contains('enfocado'));
+    expect(enfocados).toHaveLength(1);
+    expect(enfocados[0]!.textContent).toContain('Builder');
+  });
+
+  it('escribir en la caja del chat trae ese panel al frente', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
+
+    await userEvent.click(screen.getByLabelText('Mensaje para el orquestador'));
+
+    expect(container.querySelector('.agente-panel.chat.enfocado')).not.toBeNull();
+  });
+
+  it('con Escape todos vuelven a verse igual', async () => {
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Builder')).toBeDefined());
+
+    await userEvent.click(screen.getByText('Builder'));
+    await userEvent.keyboard('{Escape}');
+
+    expect(container.querySelector('.cuerpo.con-foco')).toBeNull();
+    expect(container.querySelector('.agente-panel.enfocado')).toBeNull();
+  });
+});
+
 describe('consumo de la suscripción', () => {
   it('no se muestra nada mientras el motor no haya informado', async () => {
     render(<App />);

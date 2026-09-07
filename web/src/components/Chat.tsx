@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMessage } from '../api';
+import type { AgentView, ChatMessage } from '../api';
 import { hora } from './Estado';
 import { Texto } from './Texto';
 
@@ -19,6 +19,17 @@ interface Props {
   alParar?: () => void;
   /** La parada ya se ha pedido y se espera la confirmación del motor. */
   paradaPedida?: boolean;
+  /**
+   * El orquestador, para que su caja se vea igual que la de los demás agentes.
+   *
+   * El chat es el panel del orquestador: ocupa lo mismo que el resto y lleva su nombre,
+   * su motor y su indicador en la cabecera.
+   */
+  agente?: AgentView | null;
+  /** Este panel es el que estás mirando: se ve entero y por delante de los demás. */
+  enfocado?: boolean;
+  /** Pulsar en cualquier sitio del panel lo pone en primer plano. */
+  alEnfocar?: () => void;
 }
 
 export function Chat({
@@ -31,6 +42,9 @@ export function Chat({
   ultimoPaso = null,
   alParar,
   paradaPedida = false,
+  agente = null,
+  enfocado = false,
+  alEnfocar,
 }: Props) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +78,31 @@ export function Chat({
   }
 
   return (
-    <section className="panel chat">
+    <section
+      className={`agente-panel chat${pensando ? ' activo' : ''}${enfocado ? ' enfocado' : ''}`}
+      data-rol="orquestador"
+      // Escribir en la caja también trae este panel al frente.
+      onMouseDown={alEnfocar}
+      onFocusCapture={alEnfocar}
+    >
       <header>
-        <h2>Pídele algo al equipo</h2>
-        <span className="contador">{mensajes.length} mensajes</span>
+        {agente ? (
+          <>
+            <span className={`indicador${pensando ? ' latiendo' : ''}`} aria-hidden="true" />
+            <div className="quien">
+              <strong>{agente.name}</strong>
+              <span className="rol">Orquestación · {agente.engine}</span>
+            </div>
+            <span className={`situacion${pensando ? ' trabajando' : ''}`}>
+              {pensando ? 'pensando' : 'te escucha'}
+            </span>
+          </>
+        ) : (
+          <>
+            <h2>Pídele algo al equipo</h2>
+            <span className="contador">{mensajes.length} mensajes</span>
+          </>
+        )}
       </header>
 
       <div className="mensajes">

@@ -117,6 +117,10 @@ interface Props {
   alAbrirTarea: (taskId: string) => void;
   /** El panel del orquestador es más ancho y lleva el chat, así que se pinta aparte. */
   compacto?: boolean;
+  /** Este panel es el que estás mirando: se ve entero y por delante de los demás. */
+  enfocado?: boolean;
+  /** Pulsar en cualquier sitio del panel lo pone en primer plano. */
+  alEnfocar?: () => void;
 }
 
 /**
@@ -125,7 +129,15 @@ interface Props {
  * Muestra en qué trabaja y lo que va haciendo, paso a paso. La idea es la misma que tener
  * su terminal abierta al lado, pero con lo que hace explicado en lugar de en bruto.
  */
-export function PanelAgente({ agente, tareas, pasos, alAbrirTarea, compacto = false }: Props) {
+export function PanelAgente({
+  agente,
+  tareas,
+  pasos,
+  alAbrirTarea,
+  compacto = false,
+  enfocado = false,
+  alEnfocar,
+}: Props) {
   const registro = useRef<HTMLDivElement>(null);
   const trabajando = agente.busy_workers > 0;
   const actuales = agente.current_tasks
@@ -145,8 +157,13 @@ export function PanelAgente({ agente, tareas, pasos, alAbrirTarea, compacto = fa
 
   return (
     <section
-      className={`agente-panel${trabajando ? ' activo' : ''}${compacto ? ' compacto' : ''}`}
+      className={`agente-panel${trabajando ? ' activo' : ''}${compacto ? ' compacto' : ''}${
+        enfocado ? ' enfocado' : ''
+      }`}
       data-rol={COLOR_ROL[agente.role]}
+      // Con el ratón basta con pulsar; con el teclado, llegar al panel ya lo enfoca.
+      onMouseDown={alEnfocar}
+      onFocusCapture={alEnfocar}
     >
       <header>
         <span className={`indicador${trabajando ? ' latiendo' : ''}`} aria-hidden="true" />

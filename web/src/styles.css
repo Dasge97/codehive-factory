@@ -170,17 +170,13 @@ button {
 }
 
 /*
- * Los agentes rodean al orquestador: dos paneles a la izquierda, el chat en el centro y
- * el resto del equipo a la derecha. La cuarta columna es el trabajo del proyecto.
- */
-/*
- * Tres columnas: los agentes a los lados y el orquestador con su chat en medio. El ancho
- * se reparte en proporciones, no en píxeles fijos, para que los paneles laterales crezcan
- * con la pantalla en vez de quedarse en una tira estrecha.
+ * Todos los agentes ocupan lo mismo, el orquestador incluido. Las celdas se reparten el
+ * ancho y el alto por igual, y bajan de fila solas cuando no caben.
  */
 .cuerpo {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(420px, 1.5fr) minmax(300px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   gap: 14px;
   padding: 14px 16px 16px;
   flex: 1;
@@ -188,22 +184,37 @@ button {
   overflow: hidden;
 }
 
-.columna-equipo,
-.columna-centro {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+/*
+ * El panel que pulsas se pone delante y crece un poco; los demás se quedan atenuados
+ * detrás. Es para poder leer o escribir en uno sin que el resto compita por la atención.
+ *
+ * El crecimiento es un `transform`, así que no mueve a los vecinos de sitio: se les monta
+ * encima aprovechando el hueco entre celdas.
+ */
+.cuerpo > .agente-panel {
   min-height: 0;
+  transition: opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
-/*
- * Los paneles se reparten el alto de su columna. Poner aquí un desplazamiento propio haría
- * que los paneles se quedaran en su altura mínima y dejaran hueco vacío debajo: cada panel
- * ya se desplaza por dentro.
- */
-.columna-equipo > .agente-panel {
-  flex: 1 1 0;
-  min-height: 0;
+.cuerpo.con-foco > .agente-panel {
+  opacity: 0.42;
+}
+
+.cuerpo > .agente-panel.enfocado {
+  opacity: 1;
+  transform: scale(1.035);
+  z-index: 3;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 24%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cuerpo > .agente-panel {
+    transition: none;
+  }
+
+  .cuerpo > .agente-panel.enfocado {
+    transform: none;
+  }
 }
 
 .avisos {
@@ -1228,7 +1239,7 @@ details > summary {
 
 @media (max-width: 1280px) {
   .cuerpo {
-    grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.4fr) minmax(260px, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 10px;
     padding: 10px 12px 12px;
   }
@@ -1237,26 +1248,30 @@ details > summary {
 @media (max-width: 1000px) {
   .cuerpo {
     grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
     padding: 12px;
     gap: 12px;
     overflow-y: auto;
   }
 
-  .columna-equipo,
-  .columna-centro {
+  /* En pantalla estrecha se ve una sección cada vez. */
+  .cuerpo[data-seccion='pedir'] > .agente-panel:not(.chat),
+  .cuerpo[data-seccion='equipo'] > .agente-panel.chat {
     display: none;
   }
 
-  /* En pantalla estrecha se ve una sección cada vez. */
-  .cuerpo[data-seccion='pedir'] .columna-centro,
-  .cuerpo[data-seccion='equipo'] .columna-equipo {
-    display: flex;
+  /* Apilados, cada panel guarda su altura en vez de repartirse la pantalla. */
+  .cuerpo > .agente-panel {
+    min-height: 240px;
   }
 
-  /* Apilados, cada panel guarda su altura en vez de repartirse la pantalla. */
-  .columna-equipo > .agente-panel {
-    flex: 0 0 auto;
-    min-height: 240px;
+  /* Con los paneles uno debajo de otro, agrandar el enfocado solo estorba. */
+  .cuerpo.con-foco > .agente-panel {
+    opacity: 1;
+  }
+
+  .cuerpo > .agente-panel.enfocado {
+    transform: none;
   }
 
   .nav-movil {
@@ -1274,8 +1289,7 @@ details > summary {
   }
 }
 
-}
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
 /* Cajón del trabajo                                                   */
 /* ------------------------------------------------------------------ */
 
