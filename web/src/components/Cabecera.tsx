@@ -213,18 +213,32 @@ function Modo({ modo, alCambiar }: { modo: ProjectMode; alCambiar: (modo: Projec
 /** Nombre corto de cada motor, para que se vea de quién es la cuota. */
 const NOMBRE_MOTOR: Record<string, string> = { claude_code: 'Claude', codex: 'Codex' };
 
-/** A partir de aquí, una medida es vieja y conviene decirlo. */
+/** A partir de aquí, una medida es vieja y se enseña apagada. */
 const MEDIDA_VIEJA_MS = 2 * 60 * 60 * 1000;
+
+/** Cómo se lee una fecha completa, para decir de cuándo es una medida de hace días. */
+function cuando(fecha: Date): string {
+  const hoy = new Date().toDateString() === fecha.toDateString();
+  return hoy
+    ? `las ${fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`
+    : fecha.toLocaleString('es-ES', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+}
 
 /**
  * Consumo de cada suscripción que informa de él.
  *
- * Se enseña una pastilla por motor, con su nombre. Un motor que no informa no aparece, en
- * lugar de dejar creer que la cifra de otro es la de todo el sistema.
- *
  * La cifra la publica el motor dentro de una ejecución, y no hay forma de preguntarla
- * aparte. Cuando la medida es de hace rato, se dice de cuándo es en vez de enseñarla como
- * si fuera de ahora mismo.
+ * aparte. Así que solo se actualiza cuando un agente trabaja o cuando hablas con el
+ * orquestador.
+ *
+ * Por eso hay dos casos en los que **no se enseña un porcentaje**:
+ *
+ * - La ventana de cinco horas que se midió ya se ha reiniciado. El consumo de una ventana
+ *   cerrada no dice nada del que hay ahora.
+ * - No hay ninguna medida todavía.
+ *
+ * Enseñar un número viejo como si fuera de ahora es peor que no enseñar ninguno: se toman
+ * decisiones con él.
  */
 function Consumo({ usos }: { usos: EngineUsage[] }) {
   const conDato = usos.filter((u) => u.five_hour_util !== null);
@@ -233,30 +247,46 @@ function Consumo({ usos }: { usos: EngineUsage[] }) {
   return (
     <>
       {conDato.map((uso) => {
-        const porcentaje = Math.round((uso.five_hour_util ?? 0) * 100);
+        const motor = NOMBRE_MOTOR[uso.engine] ?? uso.engine;
         const medida = new Date(uso.updated_at);
+        const reinicio = uso.five_hour_resets ? new Date(uso.five_hour_resets) : null;
+
+        // La ventana medida ya se cerró: el porcentaje es de un tramo que ya no corre.
+        const caducada = reinicio !== null && reinicio.getTime() < Date.now();
         const vieja = Date.now() - medida.getTime() > MEDIDA_VIEJA_MS;
 
-        const reinicio = uso.five_hour_resets
-          ? new Date(uso.five_hour_resets).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-          : null;
+        if (caducada) {
+          return (
+            <div
+              key={uso.engine}
+              className="consumo caducada"
+              title={
+                `Cuota de ${motor}: no se sabe. La última medida es de ${cuando(medida)}, ` +
+                `y la ventana de cinco horas que medía se reinició ${cuando(reinicio)}. ` +
+                'La cifra se actualiza sola en cuanto trabaje un agente o hables con el orquestador.'
+              }
+            >
+              <span>{motor} —</span>
+            </div>
+          );
+        }
 
-        const cuando = medida.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const porcentaje = Math.round((uso.five_hour_util ?? 0) * 100);
 
         return (
           <div
             key={uso.engine}
             className={`consumo${vieja ? ' vieja' : ''}`}
             title={[
-              `Consumo de la suscripción de ${NOMBRE_MOTOR[uso.engine] ?? uso.engine}.`,
-              `Medido a las ${cuando}, en la última ejecución de ese motor.`,
-              reinicio ? `Se reinicia a las ${reinicio}.` : null,
+              `Consumo de la suscripción de ${motor}.`,
+              `Medido a ${cuando(medida)}, en la última ejecución de ese motor.`,
+              reinicio ? `Se reinicia a ${cuando(reinicio)}.` : null,
             ]
               .filter(Boolean)
               .join(' ')}
           >
             <span>
-              {NOMBRE_MOTOR[uso.engine] ?? uso.engine} {porcentaje}%
+              {motor} {porcentaje}%
             </span>
             <span className="barra-consumo">
               <span style={{ width: `${Math.min(100, porcentaje)}%` }} />

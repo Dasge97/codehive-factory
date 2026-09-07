@@ -1753,3 +1753,54 @@ details > summary {
   border-radius: var(--radio-pequeno);
   padding: 0 5px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Panel lateral que entra por la izquierda                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Elegir carpeta es cambiar de proyecto, no consultar algo del proyecto abierto. Sale por
+ * el lado contrario que Ajustes, el trabajo y el detalle de una tarea, para que no se
+ * confunda con ellos.
+ */
+.detalle-fondo.izquierda {
+  justify-content: flex-start;
+}
+
+.detalle.izquierda {
+  border-left: 0;
+  border-right: 1px solid var(--borde);
+  animation: entrar-desde-la-izquierda 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes entrar-desde-la-izquierda {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detalle.izquierda {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cuota que ya no vale                                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * La cuota solo se mide cuando un motor se ejecuta. Una medida de hace rato se enseña
+ * apagada, y una de una ventana que ya se ha reiniciado no se enseña como número.
+ */
+.consumo.vieja {
+  opacity: 0.55;
+}
+
+.consumo.caducada {
+  opacity: 0.55;
+  font-variant-numeric: normal;
+}
+
+.consumo.caducada .barra-consumo {
+  display: none;
+}

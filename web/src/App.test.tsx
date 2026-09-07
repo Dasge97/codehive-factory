@@ -423,7 +423,7 @@ describe('consumo de la suscripción', () => {
     consumo = [
       {
         engine: 'claude_code', status: 'allowed', five_hour_util: 0.42,
-        five_hour_resets: new Date().toISOString(), seven_day_util: 0.1,
+        five_hour_resets: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), seven_day_util: 0.1,
         seven_day_resets: new Date().toISOString(), using_overage: 0,
         updated_at: new Date().toISOString(),
       },
@@ -435,11 +435,30 @@ describe('consumo de la suscripción', () => {
     await waitFor(() => expect(screen.getByText('Claude 42%')).toBeDefined());
   });
 
+  it('una medida de una ventana ya reiniciada no se enseña como porcentaje', async () => {
+    const ayer = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+    consumo = [
+      {
+        engine: 'claude_code', status: 'allowed', five_hour_util: 0.06,
+        // La ventana de cinco horas que se midió se cerró hace horas.
+        five_hour_resets: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
+        seven_day_util: 0.07, seven_day_resets: new Date().toISOString(),
+        using_overage: 0, updated_at: ayer,
+      },
+    ];
+
+    const { container } = render(<App />);
+    await waitFor(() => expect(screen.getByText('Claude —')).toBeDefined());
+
+    expect(screen.queryByText('Claude 6%')).toBeNull();
+    expect(container.querySelector('.consumo.caducada')).not.toBeNull();
+  });
+
   it('dice cuándo se midió la cuota, porque solo se actualiza al ejecutar', async () => {
     consumo = [
       {
         engine: 'claude_code', status: 'allowed', five_hour_util: 0.42,
-        five_hour_resets: new Date().toISOString(), seven_day_util: 0.1,
+        five_hour_resets: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), seven_day_util: 0.1,
         seven_day_resets: new Date().toISOString(), using_overage: 0,
         updated_at: new Date().toISOString(),
       },

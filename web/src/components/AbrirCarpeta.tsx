@@ -70,8 +70,16 @@ export function AbrirCarpeta({ rutaActual, alCerrar, alAbrir }: Props) {
   }
 
   return (
-    <div className="detalle-fondo" onClick={alCerrar}>
-      <aside className="detalle" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Abrir carpeta">
+    // Este panel entra por la izquierda. Los demás paneles laterales salen por la derecha,
+    // y elegir carpeta no es lo mismo que consultar algo del proyecto abierto: es cambiar
+    // de proyecto, así que se distingue también por el lado del que aparece.
+    <div className="detalle-fondo izquierda" onClick={alCerrar}>
+      <aside
+        className="detalle izquierda"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Abrir carpeta"
+      >
         <header>
           <h2>Abrir carpeta</h2>
           <button className="boton pequeno" onClick={alCerrar}>Cerrar</button>
