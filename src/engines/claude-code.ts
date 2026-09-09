@@ -106,18 +106,20 @@ export class ClaudeCodeEngine implements Engine {
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
-      // Nadie puede responder a un prompt de permiso, así que lo que necesite permiso se
-      // deniega y queda registrado para que decida el creador (decisión D22).
-      '--permission-prompts', 'none',
+      // En modo -p nadie puede responder a un prompt de permiso, así que lo que necesite
+      // permiso se deniega solo y queda registrado para que decida el creador (decisión
+      // D22). Claude Code 2.1 ya no tiene la opción `--permission-prompts`: ese es su
+      // comportamiento por omisión.
       '--permission-mode', request.permissionMode ?? 'acceptEdits',
       '--tools', request.allowedTools.join(','),
     ];
 
-    // Sin estas tres opciones, el agente hereda la configuración personal de quien arrancó
-    // el sistema: su CLAUDE.md, sus hooks, sus ficheros de ajustes y sus servidores MCP.
-    // El proyecto se comportaría distinto según en qué equipo se levante.
+    // Sin estas dos opciones, el agente hereda la configuración personal de quien arrancó
+    // el sistema: sus ficheros de ajustes, sus hooks y sus servidores MCP. El proyecto se
+    // comportaría distinto según en qué equipo se levante. La opción `--safe-mode` que se
+    // pasaba antes dejó de existir en Claude Code 2.1.
     if (!request.usePersonalConfig) {
-      args.push('--safe-mode', '--setting-sources', '', '--strict-mcp-config');
+      args.push('--setting-sources', '', '--strict-mcp-config');
     }
 
     if (request.model) args.push('--model', request.model);
@@ -314,7 +316,16 @@ export class RunState {
 
   private readResult(evento: Record<string, unknown>): void {
     if (typeof evento['session_id'] === 'string') this.sessionId = evento['session_id'];
-    if (typeof evento['result'] === 'string') this.resultText = evento['result'];
+
+    // Con `--json-schema`, Claude Code 2.1 deja el objeto que cumple el esquema en
+    // `structured_output`, y en `result` solo la frase con la que el agente se despide.
+    // Versiones anteriores lo ponían todo en `result`. Se acepta lo que haya.
+    const estructurado = evento['structured_output'];
+    if (estructurado !== undefined && estructurado !== null) {
+      this.resultText = typeof estructurado === 'string' ? estructurado : JSON.stringify(estructurado);
+    } else if (typeof evento['result'] === 'string') {
+      this.resultText = evento['result'];
+    }
     if (typeof evento['total_cost_usd'] === 'number') this.costUsd = evento['total_cost_usd'];
     if (typeof evento['terminal_reason'] === 'string') this.terminalReason = evento['terminal_reason'];
 

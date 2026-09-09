@@ -17,20 +17,21 @@ describe('argumentos de la línea de órdenes', () => {
     expect(args).toContain('-p');
     expect(args).toContain('--strict-mcp-config');
     expect(args.join(' ')).toContain('--output-format stream-json');
-    expect(args.join(' ')).toContain('--permission-prompts none');
+    // Claude Code 2.1 no tiene `--permission-prompts` ni `--safe-mode`: con ellas el motor
+    // ni arrancaba. Comprobado el 9 de septiembre de 2026 con la versión 2.1.153.
+    expect(args).not.toContain('--permission-prompts');
+    expect(args).not.toContain('--safe-mode');
   });
 
   it('por omisión aísla al agente de la configuración personal del equipo', () => {
     const args = motor.buildArgs(peticionBase);
-    expect(args).toContain('--safe-mode');
     expect(args).toContain('--setting-sources');
     expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
     expect(args).toContain('--strict-mcp-config');
   });
 
-  it('con la configuración personal activada no pasa ninguna de las tres opciones', () => {
+  it('con la configuración personal activada no pasa ninguna de las dos opciones', () => {
     const args = motor.buildArgs({ ...peticionBase, usePersonalConfig: true });
-    expect(args).not.toContain('--safe-mode');
     expect(args).not.toContain('--setting-sources');
     expect(args).not.toContain('--strict-mcp-config');
   });
@@ -118,6 +119,18 @@ describe('lectura del flujo del motor', () => {
     expect(r.inputTokens).toBe(12);
     expect(r.outputTokens).toBe(34);
     expect(r.resultText).toBe('{"outcome":"completed","summary":"hecho"}');
+  });
+
+  it('con Claude Code 2.1 el resultado estructurado viene en su propio campo, no en el texto', () => {
+    // Capturado el 9 de septiembre de 2026 con la versión 2.1.153: `result` lleva la frase
+    // de despedida del agente y `structured_output` el objeto que cumple el esquema.
+    const linea = JSON.stringify({
+      type: 'result',
+      result: '¡Listo! He incluido el resultado en el campo pedido.',
+      structured_output: { outcome: 'completed', summary: 'hecho' },
+    });
+    const r = leer([linea]).outcome('succeeded', null);
+    expect(JSON.parse(r.resultText!)).toEqual({ outcome: 'completed', summary: 'hecho' });
   });
 
   it('recoge el consumo de la suscripción', () => {

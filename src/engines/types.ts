@@ -22,7 +22,11 @@ export interface EngineRunRequest {
   /** Techo de gasto de la ejecución, si el motor lo admite. */
   maxBudgetUsd?: number | null;
   /** Modo de permisos del motor. */
-  permissionMode?: 'manual' | 'acceptEdits' | 'auto' | 'dontAsk' | 'bypassPermissions' | 'plan';
+  /**
+   * `default` es el modo normal del motor: pregunta antes de escribir o ejecutar, y como
+   * nadie contesta, se deniega. Es el que usa el orquestador, que solo lee.
+   */
+  permissionMode?: 'default' | 'acceptEdits' | 'auto' | 'dontAsk' | 'bypassPermissions' | 'plan';
   /**
    * Si el motor se lanza con la configuración personal de quien arranca el sistema: su
    * CLAUDE.md, sus hooks, sus ficheros de ajustes y sus servidores MCP. Por omisión no.

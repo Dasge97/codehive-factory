@@ -183,6 +183,9 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
       integrable: integrableTasks(db, project.id),
       usage: uso,
       active_work: supervisor.activeWork(),
+      // La web lo usa para enseñar que el orquestador está pensando y para saber cuándo
+      // una parada pedida se ha hecho efectiva. Sin este campo, nunca lo sabía.
+      orchestrator_busy: supervisor.orchestratorBusy(),
     });
   });
 

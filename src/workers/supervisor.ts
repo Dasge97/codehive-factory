@@ -349,7 +349,9 @@ export class Supervisor {
         model: agent.model,
         resultSchema: ORCHESTRATOR_PLAN_JSON_SCHEMA,
         systemPromptAppend: instructionsFor(agent.role),
-        permissionMode: 'manual',
+        // El modo normal del motor. El valor `manual` que se pasaba antes dejó de existir
+        // en Claude Code 2.1 y el orquestador fallaba sin llegar a arrancar.
+        permissionMode: 'default',
         usePersonalConfig: requireProject(this.db, projectId).use_personal_config === 1,
       },
       // El orquestador publica lo que va haciendo, igual que los demás agentes. Sin esto,
