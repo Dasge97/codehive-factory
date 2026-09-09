@@ -28,6 +28,7 @@ instalado, todos van con Claude Code.
 | [11 · Capacidades de Claude Code](docs/11-capacidades-claude-code.md) | Qué permite el motor realmente, comprobado en la fase 0. |
 | [12 · Guía de arranque](docs/12-guia-de-arranque.md) | Cómo poner el sistema en marcha. Escrita por el propio sistema. |
 | [13 · Plan hacia un sistema de confianza](docs/13-plan-hacia-un-sistema-de-confianza.md) | Qué significa poder confiar en él, en qué punto está, y las fases 3 a 7. |
+| [14 · Diario de uso](docs/14-diario-de-uso.md) | Día a día del sistema sobre un proyecto real del creador: qué pasó y qué se cambió. |
 
 El documento de partida se conserva en [docs/archivo/](docs/archivo/). No es la
 referencia vigente: está superado por los documentos de la tabla.
