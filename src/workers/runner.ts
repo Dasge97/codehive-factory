@@ -92,6 +92,23 @@ export async function runTask(
 
   const workspace = await prepareWorkspace(db, task, project.repo_path, project.main_branch, project.install_command);
 
+  // Una instalación que falla no para la ejecución, pero tiene que verse: si no, el agente
+  // trabaja sin dependencias y el fallo aparece más tarde con otro nombre.
+  if (workspace.instalacion && !workspace.instalacion.ok) {
+    appendEvent(db, bus, {
+      project_id: task.project_id,
+      type: 'run.progress',
+      task_id: task.id,
+      run_id: run.id,
+      agent_id: agent.id,
+      payload: {
+        kind: 'notice',
+        text: `El comando de instalación (${project.install_command}) ha fallado:\n${workspace.instalacion.salida.slice(-1200)}`,
+        is_error: true,
+      },
+    });
+  }
+
   const assignment = buildAssignment(db, task.id);
   const prompt = renderAssignment(assignment);
   markNoticesDelivered(db, task.id);
@@ -200,6 +217,8 @@ interface Workspace {
   baseCommit: string;
   /** Cómo se deja el directorio al terminar la ejecución. */
   alTerminar: 'conservar' | 'descartar_cambios' | 'eliminar';
+  /** Resultado del comando de instalación, si el proyecto tiene uno y se ejecutó. */
+  instalacion?: { ok: boolean; salida: string };
 }
 
 /**
@@ -223,7 +242,7 @@ async function prepareWorkspace(
   mainBranch: string,
   installCommand: string | null,
 ): Promise<Workspace> {
-  if (task.kind === 'review') return prepararRevision(db, task, repoPath);
+  if (task.kind === 'review') return prepararRevision(db, task, repoPath, installCommand);
 
   if (!ESCRIBEN_CODIGO.has(task.kind)) {
     // Una carpeta que no es un repositorio no admite worktrees. Solo se puede leer.
@@ -233,28 +252,44 @@ async function prepareWorkspace(
 
     const commit = await resolveCommit(repoPath, mainBranch).catch(() => resolveCommit(repoPath, 'HEAD'));
     const ruta = join(workspacesRoot(), task.id);
-    const { created } = await ensureDetachedWorktree(repoPath, ruta, commit);
-    if (created && installCommand) {
-      await ejecutarComando(installCommand, ruta).catch(() => undefined);
-    }
-    return { path: ruta, baseCommit: commit, alTerminar: 'eliminar' };
+    await ensureDetachedWorktree(repoPath, ruta, commit);
+    return { path: ruta, baseCommit: commit, alTerminar: 'eliminar', instalacion: await instalar(installCommand, ruta) };
   }
 
   // Una limpieza continúa en la rama y el worktree del trabajo que limpia, no en uno nuevo.
   const rama = task.branch ?? branchForTask(task.parent_task_id ?? task.id);
   const ruta = task.workspace_path ?? join(workspacesRoot(), task.parent_task_id ?? task.id);
 
-  const { created, baseCommit } = await ensureWorktree(repoPath, ruta, rama, mainBranch);
-
-  if (created && installCommand) {
-    await ejecutarComando(installCommand, ruta).catch(() => undefined);
-  }
+  const { baseCommit } = await ensureWorktree(repoPath, ruta, rama, mainBranch);
 
   db.prepare(
     'UPDATE tasks SET workspace_path = ?, branch = ?, base_commit = COALESCE(base_commit, ?), updated_at = ? WHERE id = ?',
   ).run(ruta, rama, baseCommit, now(), task.id);
 
-  return { path: ruta, baseCommit: task.base_commit ?? baseCommit, alTerminar: 'conservar' };
+  return {
+    path: ruta,
+    baseCommit: task.base_commit ?? baseCommit,
+    alTerminar: 'conservar',
+    instalacion: await instalar(installCommand, ruta),
+  };
+}
+
+/**
+ * Ejecuta el comando de instalación del proyecto antes de cada ejecución, no solo al crear
+ * el worktree.
+ *
+ * En la primera ronda real sobre un proyecto de Symfony, el reviewer vació la carpeta
+ * `vendor` del worktree para dejarlo limpio, y el siguiente intento del builder se habría
+ * encontrado sin dependencias y sin que nadie las reinstalara. El comando de instalación
+ * de un proyecto tiene que poder repetirse: cuando no hay nada que hacer, termina en
+ * segundos.
+ */
+async function instalar(installCommand: string | null, ruta: string): Promise<Workspace['instalacion']> {
+  if (!installCommand) return undefined;
+  return ejecutarComando(installCommand, ruta).catch((e: unknown) => ({
+    ok: false,
+    salida: e instanceof Error ? e.message : String(e),
+  }));
 }
 
 /**
@@ -262,7 +297,12 @@ async function prepareWorkspace(
  * dependencias instaladas y el commit exacto. Si ese worktree ya no existe, se le prepara
  * uno sin rama sobre el commit revisado.
  */
-async function prepararRevision(db: Db, task: Task, repoPath: string): Promise<Workspace> {
+async function prepararRevision(
+  db: Db,
+  task: Task,
+  repoPath: string,
+  installCommand: string | null,
+): Promise<Workspace> {
   const revisada = task.parent_task_id ? requireTask(db, task.parent_task_id) : null;
   const commit = task.base_commit ?? revisada?.head_commit ?? (await resolveCommit(repoPath, 'HEAD'));
 
@@ -272,12 +312,17 @@ async function prepararRevision(db: Db, task: Task, repoPath: string): Promise<W
       now(),
       task.id,
     );
-    return { path: revisada.workspace_path, baseCommit: commit, alTerminar: 'descartar_cambios' };
+    return {
+      path: revisada.workspace_path,
+      baseCommit: commit,
+      alTerminar: 'descartar_cambios',
+      instalacion: await instalar(installCommand, revisada.workspace_path),
+    };
   }
 
   const ruta = join(workspacesRoot(), task.id);
   await ensureDetachedWorktree(repoPath, ruta, commit);
-  return { path: ruta, baseCommit: commit, alTerminar: 'eliminar' };
+  return { path: ruta, baseCommit: commit, alTerminar: 'eliminar', instalacion: await instalar(installCommand, ruta) };
 }
 
 /** Deja el directorio de trabajo como corresponde a su tipo de tarea. */
@@ -406,9 +451,13 @@ async function conVerificacionMedida(
     run_id: run.id,
     payload: {
       kind: 'notice',
-      text: declaroAlgoFalso
-        ? `El agente dijo que la verificación pasaba. Ejecutada por el sistema con ${medida.command}, no pasa.`
-        : `Verificación ejecutada por el sistema con ${medida.command}: ${medida.passed ? 'pasa' : 'no pasa'}.`,
+      // Cuando no pasa, el final de la salida va en el propio aviso: es donde el comando
+      // de pruebas resume qué falló, y sin él el aviso solo dice «no pasa».
+      text:
+        (declaroAlgoFalso
+          ? `El agente dijo que la verificación pasaba. Ejecutada por el sistema con ${medida.command}, no pasa.`
+          : `Verificación ejecutada por el sistema con ${medida.command}: ${medida.passed ? 'pasa' : 'no pasa'}.`) +
+        (medida.passed ? '' : `\n${medida.output.slice(-1500)}`),
       is_error: !medida.passed,
     },
   });
@@ -420,7 +469,8 @@ async function conVerificacionMedida(
       db,
       task.id,
       'system',
-      'En tu intento anterior dijiste que la verificación del proyecto pasaba. El sistema la ejecutó y no pasa. Comprueba el resultado real antes de terminar.',
+      'En tu intento anterior dijiste que la verificación del proyecto pasaba. El sistema la ejecutó después, en tu mismo directorio, y no pasa. ' +
+        `Final de la salida:\n${medida.output.slice(-1500)}\nComprueba el resultado real antes de terminar, y ten en cuenta que el sistema la ejecuta otra vez después de ti sobre el mismo estado.`,
     );
   }
 

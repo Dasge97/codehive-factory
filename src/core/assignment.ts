@@ -83,7 +83,33 @@ export function buildAssignment(db: Db, taskId: string): Assignment {
         : []),
     ],
     previous_run: previa ?? null,
+    system_verification: task.kind === 'review' && task.parent_task_id ? verificacionDelSistema(db, task.parent_task_id) : null,
   };
+}
+
+/**
+ * El último aviso de verificación que el sistema dejó sobre una tarea.
+ *
+ * El runner ejecuta el comando de verificación después de cada intento y publica el
+ * resultado como aviso de progreso. En la primera ronda real sobre un proyecto de
+ * Symfony, esa verificación falló, el reviewer no lo tenía delante y aprobó. Lo que el
+ * sistema midió tiene que llegar al reviewer.
+ */
+function verificacionDelSistema(db: Db, taskId: string): string | null {
+  const fila = db
+    .prepare(
+      `SELECT payload FROM events
+       WHERE task_id = ? AND type = 'run.progress' AND payload LIKE '%ejecutada por el sistema%'
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(taskId) as { payload: string } | undefined;
+  if (!fila) return null;
+  try {
+    const carga = JSON.parse(fila.payload) as { text?: unknown };
+    return typeof carga.text === 'string' ? carga.text : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -235,6 +261,15 @@ export function renderAssignment(assignment: Assignment): string {
 
   if (assignment.previous_run?.summary) {
     partes.push(seccion('Lo que hiciste en el intento anterior', assignment.previous_run.summary));
+  }
+
+  if (assignment.system_verification) {
+    partes.push(
+      seccion(
+        'Lo que midió el sistema sobre este incremento',
+        `${assignment.system_verification}\n\nEl sistema ejecutó el comando de verificación en el mismo directorio, justo después del builder. Si no pasó, es un hallazgo salvo que demuestres en tu resumen por qué no lo es.`,
+      ),
+    );
   }
 
   partes.push(

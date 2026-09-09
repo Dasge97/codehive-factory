@@ -400,4 +400,10 @@ export interface Assignment {
   team: Array<{ agent_id: string; name: string; role: AgentRole; available: boolean }>;
   notices: Array<{ from: string; body: string }>;
   previous_run: { id: string; summary: string | null; engine_session_id: string | null } | null;
+  /**
+   * Lo que dijo la verificación que el sistema ejecutó sobre el incremento que se revisa.
+   * Solo en una revisión. El reviewer tiene que ver que el sistema no pudo dar el trabajo
+   * por bueno, y por qué.
+   */
+  system_verification: string | null;
 }
