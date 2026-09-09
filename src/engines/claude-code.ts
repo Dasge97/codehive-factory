@@ -64,6 +64,37 @@ function segundosAIso(segundos: unknown): string | null {
   return typeof segundos === 'number' ? new Date(segundos * 1000).toISOString() : null;
 }
 
+/**
+ * Quita de `required` las propiedades que admiten null.
+ *
+ * Los esquemas del sistema declaran obligatorias todas sus propiedades porque Codex lo
+ * exige (decisión D35). Claude Code, en cambio, tiende a omitir las que valen null, y el
+ * motor rechaza el resultado una y otra vez hasta agotar los intentos: en la prueba real
+ * del 9 de septiembre de 2026 el orquestador falló cinco veces seguidas por «must have
+ * required property 'project_goal'». Una propiedad que admite null y falta es lo mismo
+ * que una que vale null, y así la lee el sistema al validar el resultado.
+ */
+export function relajarEsquema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(relajarEsquema);
+  if (!schema || typeof schema !== 'object') return schema;
+
+  const copia: Record<string, unknown> = {};
+  for (const [clave, valor] of Object.entries(schema as Record<string, unknown>)) {
+    copia[clave] = relajarEsquema(valor);
+  }
+
+  const propiedades = copia['properties'];
+  const obligatorias = copia['required'];
+  if (propiedades && typeof propiedades === 'object' && Array.isArray(obligatorias)) {
+    const props = propiedades as Record<string, { type?: unknown }>;
+    copia['required'] = obligatorias.filter((nombre) => {
+      const tipo = props[String(nombre)]?.type;
+      return !(Array.isArray(tipo) && tipo.includes('null'));
+    });
+  }
+  return copia;
+}
+
 export class ClaudeCodeEngine implements Engine {
   readonly name = 'claude_code' as const;
 
@@ -123,7 +154,7 @@ export class ClaudeCodeEngine implements Engine {
     }
 
     if (request.model) args.push('--model', request.model);
-    if (request.resultSchema) args.push('--json-schema', JSON.stringify(request.resultSchema));
+    if (request.resultSchema) args.push('--json-schema', JSON.stringify(relajarEsquema(request.resultSchema)));
     if (request.systemPromptAppend) args.push('--append-system-prompt', request.systemPromptAppend);
     if (typeof request.maxBudgetUsd === 'number') args.push('--max-budget-usd', String(request.maxBudgetUsd));
 
@@ -150,6 +181,7 @@ export class ClaudeCodeEngine implements Engine {
     return {
       wait: () => terminado,
       stop: () => estado.stop(),
+      pid: proceso.pid,
     };
   }
 }
@@ -166,6 +198,8 @@ export class RunState {
   private permissionDenials: PermissionDenial[] = [];
   private usage: EngineUsageReport | null = null;
   private stderr = '';
+  private subtipoResultado: string | null = null;
+  private textoDeError: string | null = null;
   private vioResultado = false;
   private detenidoPorPeticion = false;
   private agotadoPorTiempo = false;
@@ -316,6 +350,10 @@ export class RunState {
 
   private readResult(evento: Record<string, unknown>): void {
     if (typeof evento['session_id'] === 'string') this.sessionId = evento['session_id'];
+    if (typeof evento['subtype'] === 'string') this.subtipoResultado = evento['subtype'];
+    if (evento['is_error'] === true && typeof evento['result'] === 'string') {
+      this.textoDeError = evento['result'];
+    }
 
     // Con `--json-schema`, Claude Code 2.1 deja el objeto que cumple el esquema en
     // `structured_output`, y en `result` solo la frase con la que el agente se despide.
@@ -367,7 +405,16 @@ export class RunState {
       return this.outcome('failed', 'El motor no pudo hablar con la API: credenciales, cuota o red.');
     }
     if (code !== 0) {
-      return this.outcome('failed', `El motor terminó con código ${code}. ${this.stderr.slice(0, 500)}`.trim());
+      // El motor explica el fallo en el propio evento de resultado, no por stderr: qué
+      // subtipo de fin fue y, si lo hay, el texto del error.
+      const detalle = [
+        this.subtipoResultado && this.subtipoResultado !== 'success' ? `motivo ${this.subtipoResultado}` : null,
+        this.textoDeError?.slice(0, 500) ?? null,
+        this.stderr.slice(0, 500) || null,
+      ]
+        .filter(Boolean)
+        .join('. ');
+      return this.outcome('failed', `El motor terminó con código ${code}. ${detalle}`.trim());
     }
     return this.outcome('succeeded', null);
   }

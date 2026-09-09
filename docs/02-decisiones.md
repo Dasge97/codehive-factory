@@ -812,6 +812,29 @@ seis mensajes.
 
 ---
 
+## D47 · El adaptador de Claude Code sigue a la versión instalada, no a la documentación
+
+**Origen:** técnica, 9 de septiembre de 2026, tras la tercera ejecución real.
+
+El adaptador pasa solo las opciones que Claude Code 2.1.153 acepta: sin `--permission-prompts`
+ni `--safe-mode`, con el modo de permisos `default` para el orquestador, y leyendo el
+resultado estructurado del campo `structured_output`. El esquema que recibe Claude no exige
+las propiedades que admiten null; el que recibe Codex sigue exigiéndolas todas (decisión D35).
+Cada ejecución guarda el identificador del proceso del motor, y el arranque mata los que
+quedaron vivos de una sesión anterior.
+
+**Por qué:** con las opciones anteriores el motor terminaba antes de empezar, y el sistema
+entero llevaba sin poder ejecutar un agente desde la actualización del motor. Nadie lo
+había visto porque las pruebas automáticas no lanzan el motor real. Y Claude omite los
+campos nulos: con el esquema estricto rechazaba el plan del orquestador hasta agotar los
+intentos.
+
+**Consecuencia:** la fase 0 (decisión D20) hay que repetirla cada vez que se actualiza el
+motor. Queda como comprobación de arranque pendiente: lanzar un encargo mínimo al motor y
+parar si falla, en vez de descubrirlo en la primera tarea del creador.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

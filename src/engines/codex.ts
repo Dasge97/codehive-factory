@@ -153,7 +153,7 @@ export class CodexEngine implements Engine {
     const estado = new CodexRunState(request, rutaResultado, temporal, onProgress);
     const terminado = estado.attach(proceso, request.timeoutMs);
 
-    return { wait: () => terminado, stop: () => estado.stop() };
+    return { wait: () => terminado, stop: () => estado.stop(), pid: proceso.pid };
   }
 }
 

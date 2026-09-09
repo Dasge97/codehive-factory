@@ -232,3 +232,43 @@ D38: Codex rechazaba los esquemas de resultado por no declarar todas las propied
 obligatorias, las peticiones de apoyo se encadenaban sin fin, y una revisión no se cerraba
 al dar su veredicto. Además, en Windows el aislamiento propio de Codex impedía al reviewer
 ejecutar cualquier orden, así que no podía ni mirar el commit.
+
+## Tercera ejecución real: forzando fallos
+
+El 9 de septiembre de 2026, sobre un proyecto pequeño de Node aparte (una lista de la
+compra con `node --test` como verificación y `package.json` protegido), con todos los roles
+en Claude Code 2.1.153, dos workers de builder y el proyecto en modo normal salvo la última
+ronda. Nueve peticiones por el chat, quince tareas, diecinueve ejecuciones. Coste informado
+por el motor: 5,32 dólares en ejecuciones y 1,46 en diez turnos del orquestador.
+
+| Qué se forzó | Qué hizo el sistema |
+| --- | --- |
+| Dos peticiones independientes en un mensaje | El orquestador creó dos tareas con rutas distintas; los dos builders trabajaron a la vez; dos revisiones aprobadas; dos integraciones. |
+| Integrar con un fichero sin confirmar en el repositorio del creador | Se negó sin tocar nada y dijo por qué. Sin el fichero, integró. |
+| La rama principal cambió mientras el builder trabajaba: una prueba nueva fija la lista de funciones exportadas, y la tarea añadía una | La revisión aprobó la rama aislada. Al integrar, la fusión pasó y `node --test` falló. La fusión se deshizo, se abrió un hallazgo bloqueante y la misma tarea volvió a la cola. El builder fusionó `main` en su rama, actualizó la prueba, el reviewer aprobó, y la integración pasó. |
+| Una tarea que exige tocar `package.json`, protegido | El builder no lo tocó, terminó bloqueado y dejó una pregunta. La pregunta llegó al chat y provocó un turno del orquestador. El creador contestó; el orquestador canceló la tarea y registró la decisión. |
+| Un cambio que rompe una prueba existente, con orden de preguntar antes | El orquestador leyó la prueba, no creó ninguna tarea y preguntó al creador con cuatro opciones. Con la respuesta, creó la tarea. |
+| Matar el proceso principal con el builder a mitad | Al arrancar, la ejecución quedó como interrumpida y la tarea volvió a la cola. El segundo intento encontró en el worktree el commit que el primero había dejado, lo publicó y siguió. |
+| Tiempo máximo de 60 segundos en una tarea grande | La primera ejecución se agotó por tiempo. La segunda, con el tiempo normal, terminó. |
+| Modo estricto sobre una tarea grande | Construcción, revisión aprobada, limpieza del refactorer, revisión de la limpieza con un hallazgo `major` real («el refactor afloja la validación de cantidad»), la misma tarea de limpieza lo corrigió y añadió una prueba, revisión aprobada, tarea original hecha con el commit final del refactor, integrada. |
+
+**Fallos del sistema que salieron de esta prueba**, todos corregidos el mismo día:
+
+- Con Claude Code 2.1 el motor ni arrancaba: `--permission-prompts`, `--safe-mode` y el
+  modo de permisos `manual` ya no existen. Y el resultado que cumple el esquema viene en el
+  campo `structured_output`, no en `result`. Ningún agente podía ejecutarse.
+- Claude omite los campos que valen null y el esquema los exigía todos, así que el motor
+  rechazaba el plan del orquestador cinco veces seguidas. El adaptador de Claude relaja el
+  esquema; el de Codex lo mantiene estricto (decisión D47).
+- `git diff base..commit` falla en Windows dentro de un worktree de ruta larga, así que
+  ningún incremento traía su lista de ficheros y la comprobación de ficheros protegidos no
+  podía funcionar.
+- La web esperaba un campo `orchestrator_busy` que el servidor nunca mandaba.
+- Cancelar una tarea dejaba su worktree y su rama para siempre.
+- Una ejecución interrumpida por un reinicio no apuntaba el proceso del motor; ahora se
+  guarda y el arranque lo mata si sigue vivo.
+
+**Lo que no se ha probado con agentes reales:** Codex (en esta máquina no se usa), dos
+tareas que reservan las mismas rutas, un worker perdido con el sistema en marcha, y una
+tarea que agote las rondas de corrección. Estas cuatro siguen cubiertas solo por las
+pruebas automáticas.

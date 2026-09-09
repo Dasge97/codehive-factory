@@ -482,4 +482,18 @@ UPDATE projects SET current_conversation_id = 'cnv_inicial_' || id;
 CREATE INDEX idx_chat_conversation ON chat_messages(conversation_id, created_at);
 `,
   },
+
+  {
+    version: 7,
+    name: 'proceso del motor de cada ejecución',
+    sql: `
+-- Identificador del proceso del motor mientras la ejecución está en marcha.
+--
+-- Si el sistema muere con ejecuciones en marcha, los procesos de los motores no mueren
+-- con él: en Windows un proceso hijo sobrevive a su padre. Al arrancar de nuevo, la tarea
+-- vuelve a la cola y otro motor empezaría a escribir en el mismo worktree mientras el
+-- huérfano sigue trabajando. Con el identificador guardado, el arranque puede matarlo.
+ALTER TABLE runs ADD COLUMN engine_pid INTEGER;
+`,
+  },
 ];

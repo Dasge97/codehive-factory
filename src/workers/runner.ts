@@ -126,6 +126,12 @@ export async function runTask(
     },
   );
 
+  // El proceso del motor queda apuntado en la ejecución: si el sistema muere ahora, el
+  // arranque siguiente lo mata antes de volver a lanzar la tarea en el mismo worktree.
+  if (handle.pid) {
+    db.prepare('UPDATE runs SET engine_pid = ? WHERE id = ?').run(handle.pid, run.id);
+  }
+
   const outcome = await handle.wait();
 
   saveUsage(db, bus, engine.name, outcome);
@@ -560,7 +566,26 @@ async function recordWork(db: Db, bus: EventBus, input: RecordWorkInput): Promis
   const commit = await lastCommit(input.workspacePath);
   if (!commit || commit.sha === input.baseCommit) return null;
 
-  const ficheros = await changedFiles(input.workspacePath, input.baseCommit, commit.sha).catch(() => []);
+  // Sin la lista de ficheros no se puede comprobar si el commit toca algo protegido, así
+  // que un fallo aquí no se traga en silencio: el incremento no se publica y la tarea
+  // vuelve a intentarlo.
+  const ficheros = await changedFiles(input.workspacePath, input.baseCommit, commit.sha).catch((e: unknown) => {
+    appendEvent(db, bus, {
+      project_id: task.project_id,
+      type: 'run.progress',
+      task_id: task.id,
+      run_id: run.id,
+      payload: {
+        kind: 'notice',
+        text: `No se pudo listar los ficheros del commit ${commit.sha.slice(0, 8)}: ${e instanceof Error ? e.message : String(e)}`,
+        is_error: true,
+      },
+    });
+    return null;
+  });
+  if (ficheros === null) {
+    throw new Error(`No se pudo listar los ficheros del commit ${commit.sha.slice(0, 8)}.`);
+  }
 
   // El agente tiene la lista de ficheros protegidos en su encargo, pero una instrucción se
   // puede desatender. Un cambio que los toca no se publica y su tarea queda bloqueada, así

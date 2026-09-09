@@ -165,9 +165,17 @@ export async function removeWorktree(
   }
 }
 
-/** Ficheros que cambian entre dos commits. */
+/**
+ * Ficheros que cambian entre dos commits.
+ *
+ * Los dos commits van como argumentos separados y con `--` detrás. Con la forma
+ * `desde..hasta`, git comprueba primero si existe un fichero con ese nombre, y en Windows,
+ * dentro de un worktree con ruta larga, esa comprobación falla con «Filename too long» en
+ * vez de pasar a tratarlo como rango. Salió en la prueba real del 9 de septiembre de 2026:
+ * ningún incremento traía ficheros, y sin ficheros no se comprueban los protegidos.
+ */
 export async function changedFiles(repoPath: string, desde: string, hasta: string): Promise<string[]> {
-  const salida = await git(repoPath, ['diff', '--name-only', `${desde}..${hasta}`]);
+  const salida = await git(repoPath, ['diff', '--name-only', desde, hasta, '--']);
   return salida ? salida.split('\n').map((l) => l.trim()).filter(Boolean) : [];
 }
 

@@ -5,9 +5,11 @@ orquestador; un equipo de agentes construye, revisa y corrige el proyecto de for
 concurrente. El creador ve el estado en una web y puede cambiar el rumbo mientras el
 trabajo avanza.
 
-Estado: las fases 0, 1 y 2 están terminadas. El creador pide algo por el chat, el
-orquestador reparte, el builder construye con Claude Code, el reviewer revisa con Codex y
-el creador integra desde la web.
+Estado: las fases 0, 1 y 2 están terminadas, y el 9 de septiembre de 2026 el sistema pasó
+una prueba real forzando fallos (documento 10, tercera ejecución). El creador pide algo por
+el chat, el orquestador reparte, el builder construye, el reviewer revisa, el creador
+integra desde la web. Cada rol usa el motor que tenga configurado; si Codex no está
+instalado, todos van con Claude Code.
 
 ## Documentación
 

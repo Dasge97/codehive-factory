@@ -24,6 +24,7 @@ import { listarTurnos, resumenDeTurnos } from '../core/orchestrator-turns.js';
 import { listFindings, listIncrements, readyToIntegrate } from '../core/review.js';
 import { RuleError, addNotice, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
 import { abandonarLimpieza } from '../workers/runner.js';
+import { removeWorktree } from '../workers/git.js';
 import { now } from '../shared/ids.js';
 import {
   ENGINES,
@@ -409,6 +410,7 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
       const cancelada = setStatus(db, bus, param(req, 'id'), 'cancelled', motivo);
       // Cancelar una limpieza no deja colgado al trabajo que la esperaba.
       if (cancelada.kind === 'refactor') await abandonarLimpieza(db, bus, cancelada.id);
+      await recogerTareaCancelada(db, cancelada);
       res.json(cancelada);
     }),
   );
@@ -541,6 +543,20 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
   }
 
   return app;
+}
+
+/**
+ * Quita el worktree y la rama de una tarea cancelada que era dueña de ellos.
+ *
+ * Una revisión o una limpieza comparten el worktree de otra tarea y no se lo llevan. Una
+ * tarea que ya está integrada tampoco tiene nada que recoger. En la prueba real del 9 de
+ * septiembre de 2026, una tarea cancelada dejó su worktree y su rama para siempre.
+ */
+async function recogerTareaCancelada(db: Db, task: Task): Promise<void> {
+  if (task.parent_task_id || !task.workspace_path || !task.branch) return;
+  const project = requireProject(db, task.project_id);
+  await removeWorktree(project.repo_path, task.workspace_path, { deleteBranch: task.branch }).catch(() => undefined);
+  db.prepare('UPDATE tasks SET workspace_path = NULL, updated_at = ? WHERE id = ?').run(now(), task.id);
 }
 
 /**

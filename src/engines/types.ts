@@ -82,6 +82,11 @@ export interface EngineHandle {
   wait(): Promise<EngineRunOutcome>;
   /** Detiene la ejecución. El resultado será `cancelled`. */
   stop(): void;
+  /**
+   * Identificador del proceso del motor, si el motor es un proceso. Se guarda con la
+   * ejecución para poder matar un proceso huérfano tras un reinicio del sistema.
+   */
+  pid?: number;
 }
 
 /** Qué sabe hacer realmente un motor. La web solo ofrece lo que aquí se declara. */

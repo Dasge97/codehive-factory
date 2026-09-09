@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import type { Db } from '../core/db.js';
 import { EventBus, appendEvent } from '../core/events.js';
 import { agentTools, listAgents, requireProject } from '../core/projects.js';
@@ -484,14 +485,18 @@ export function recoverInterruptedRuns(
 ): number {
   const colgadas = (db
     .prepare(
-      `SELECT r.id, r.task_id FROM runs r
+      `SELECT r.id, r.task_id, r.engine_pid FROM runs r
        JOIN tasks t ON t.id = r.task_id
        WHERE t.project_id = ? AND r.status = 'running'`,
     )
-    .all(projectId) as Array<{ id: string; task_id: string }>)
+    .all(projectId) as Array<{ id: string; task_id: string; engine_pid: number | null }>)
     .filter((run) => !enMarcha.has(run.id));
 
   for (const run of colgadas) {
+    // El proceso del motor puede seguir vivo aunque el sistema haya muerto. Si se deja,
+    // seguiría escribiendo en el worktree mientras el siguiente intento trabaja ahí.
+    matarProcesoHuerfano(run.engine_pid);
+
     db.prepare(
       "UPDATE runs SET status = 'interrupted', error = ?, ended_at = datetime('now') WHERE id = ?",
     ).run('El sistema se reinició mientras la ejecución estaba en marcha.', run.id);
@@ -515,4 +520,23 @@ export function recoverInterruptedRuns(
   }
 
   return colgadas.length;
+}
+
+/**
+ * Mata el proceso de un motor que quedó huérfano tras un reinicio, si sigue vivo.
+ *
+ * En Windows se usa `taskkill /T` para llevarse también los procesos que el motor haya
+ * lanzado, como una shell ejecutando las pruebas. Si el proceso ya no existe, no pasa nada.
+ */
+export function matarProcesoHuerfano(pid: number | null): void {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      process.kill(pid, 'SIGKILL');
+    }
+  } catch {
+    // Ya no estaba, o no se puede matar. En ambos casos no hay nada más que hacer aquí.
+  }
 }

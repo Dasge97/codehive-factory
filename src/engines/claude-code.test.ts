@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ClaudeCodeEngine, RunState, resolveClaudePath } from './claude-code.js';
+import { ClaudeCodeEngine, RunState, relajarEsquema, resolveClaudePath } from './claude-code.js';
 import type { EngineProgress, EngineRunRequest } from './types.js';
 
 const motor = new ClaudeCodeEngine('/ruta/falsa/claude.exe');
@@ -181,6 +181,33 @@ describe('lectura del flujo del motor', () => {
 
   it('ignora una línea que no es JSON sin romperse', () => {
     expect(() => leer(['Warning: algo', LINEA_RESULTADO])).not.toThrow();
+  });
+});
+
+describe('el esquema que recibe Claude Code', () => {
+  it('no exige las propiedades que admiten null, porque el motor las omite y falla', () => {
+    const args = motor.buildArgs({
+      ...peticionBase,
+      resultSchema: {
+        type: 'object',
+        properties: {
+          reply: { type: 'string' },
+          tasks: { type: ['array', 'null'], items: { type: 'object', properties: { title: { type: 'string' }, scope: { type: ['string', 'null'] } }, required: ['title', 'scope'] } },
+        },
+        required: ['reply', 'tasks'],
+      },
+    });
+    const esquema = JSON.parse(args[args.indexOf('--json-schema') + 1]!) as {
+      required: string[];
+      properties: { tasks: { items: { required: string[] } } };
+    };
+    expect(esquema.required).toEqual(['reply']);
+    expect(esquema.properties.tasks.items.required).toEqual(['title']);
+  });
+
+  it('deja intactas las propiedades que no admiten null', () => {
+    const relajado = relajarEsquema({ type: 'object', properties: { a: { type: 'string' } }, required: ['a'] }) as { required: string[] };
+    expect(relajado.required).toEqual(['a']);
   });
 });
 
