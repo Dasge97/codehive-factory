@@ -238,8 +238,8 @@ ejecutar cualquier orden, así que no podía ni mirar el commit.
 El 9 de septiembre de 2026, sobre un proyecto pequeño de Node aparte (una lista de la
 compra con `node --test` como verificación y `package.json` protegido), con todos los roles
 en Claude Code 2.1.153, dos workers de builder y el proyecto en modo normal salvo la última
-ronda. Nueve peticiones por el chat, quince tareas, diecinueve ejecuciones. Coste informado
-por el motor: 5,32 dólares en ejecuciones y 1,46 en diez turnos del orquestador.
+ronda. Doce peticiones por el chat, veintidós tareas, veintiocho ejecuciones. Coste informado
+por el motor: 8,10 dólares en ejecuciones y 2,19 en catorce turnos del orquestador.
 
 | Qué se forzó | Qué hizo el sistema |
 | --- | --- |
@@ -251,6 +251,9 @@ por el motor: 5,32 dólares en ejecuciones y 1,46 en diez turnos del orquestador
 | Matar el proceso principal con el builder a mitad | Al arrancar, la ejecución quedó como interrumpida y la tarea volvió a la cola. El segundo intento encontró en el worktree el commit que el primero había dejado, lo publicó y siguió. |
 | Tiempo máximo de 60 segundos en una tarea grande | La primera ejecución se agotó por tiempo. La segunda, con el tiempo normal, terminó. |
 | Modo estricto sobre una tarea grande | Construcción, revisión aprobada, limpieza del refactorer, revisión de la limpieza con un hallazgo `major` real («el refactor afloja la validación de cantidad»), la misma tarea de limpieza lo corrigió y añadió una prueba, revisión aprobada, tarea original hecha con el commit final del refactor, integrada. |
+| Dos cambios que tocan el mismo fichero en un mensaje | El orquestador creó una sola tarea con las dos cosas, explicó por qué, y preguntó un criterio de diseño antes de que empezara el builder. El bloqueo por rutas no llegó a hacer falta. |
+| Un cambio con la orden expresa de no escribir pruebas | El builder no tocó ningún test y el reviewer aprobó: la orden del creador en la tarea pesó más que su regla de exigir pruebas. |
+| Un solo intento permitido y tope de 60 segundos en una tarea grande | Primer intento agotado por tiempo, tarea bloqueada, turno del orquestador: la reabrió él mismo con una nota sobre cómo acortar las pruebas. Segundo intento rechazado por el reviewer con dos hallazgos reales (el CLI no admitía rutas con espacios), y la tarea volvió a bloquearse por agotar las rondas de corrección. El creador la reabrió desde la API; el tercer intento resolvió los dos hallazgos y quedó aprobada e integrada. |
 
 **Fallos del sistema que salieron de esta prueba**, todos corregidos el mismo día:
 
@@ -268,7 +271,4 @@ por el motor: 5,32 dólares en ejecuciones y 1,46 en diez turnos del orquestador
 - Una ejecución interrumpida por un reinicio no apuntaba el proceso del motor; ahora se
   guarda y el arranque lo mata si sigue vivo.
 
-**Lo que no se ha probado con agentes reales:** Codex (en esta máquina no se usa), dos
-tareas que reservan las mismas rutas, un worker perdido con el sistema en marcha, y una
-tarea que agote las rondas de corrección. Estas cuatro siguen cubiertas solo por las
-pruebas automáticas.
+**Lo que no se ha probado con agentes reales:** Codex (en esta máquina no se usa), y un worker perdido con el sistema en marcha. Con los workers dentro del proceso principal (decisión D25), un worker solo se pierde si el proceso del motor se cuelga sin terminar, y ese caso lo cubre el tiempo máximo de ejecución. Las dos siguen cubiertas por las pruebas automáticas.
