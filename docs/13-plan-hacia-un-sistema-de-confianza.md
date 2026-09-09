@@ -98,9 +98,10 @@ Cierra la condición C6. Es la parte que más se aprovecha de SwarmForge.
 
 Cierra la condición C7. No tiene tareas de código: tiene un método.
 
-1. El proyecto es **prindia-cloud**, elegido el 9 de septiembre de 2026 entre los repositorios del creador: es el producto en el que más se trabaja (commits casi a diario), tiene 416 pruebas en 65 ficheros que se ejecutan desde esta máquina en tres minutos y medio contra el MySQL del contenedor, y todo lo que produzca pasa igualmente por el botón de integrar. `prindia-home`, con 367 pruebas, es el segundo proyecto cuando la primera semana vaya bien.
+1. El proyecto es **saas-peluqueria**, elegido por el creador el 9 de septiembre de 2026. Es un SaaS de reservas en Symfony 7.4 con PostgreSQL y Redis, con 920 pruebas en 70 ficheros que pasan desde esta máquina en siete minutos contra los contenedores de base de datos y Redis del propio proyecto, y con una cadena de calidad ya escrita (`composer qa`: estilo, análisis estático, lint y pruebas). El creador descartó prindia-cloud, que era la propuesta técnica, por ser el producto con clientes.
 
-   Condiciones de arranque para ese proyecto: un solo worker de builder y una sola ejecución a la vez, porque todas las pruebas usan la misma base `prindia_cloud_test` y se la resiembran; `composer install` como comando de instalación; tiempo máximo de ejecución de 30 minutos; `.env`, `.env.test` y `composer.lock` protegidos. La primera tarea que se le pide al sistema es que cada worktree pueda usar su propia base de pruebas, para poder subir a dos workers.
+   Condiciones de arranque para ese proyecto: un solo worker de builder y una sola ejecución a la vez, porque todas las pruebas usan la misma base `saas_peluqueria_test`; `composer install` con la extensión redis ignorada (no está en el PHP de esta máquina, y las pruebas pasan sin ella) y las migraciones aplicadas como comando de instalación; tiempo máximo de ejecución de 40 minutos, porque solo las pruebas tardan siete; `.env`, `.env.test`, `composer.lock`, `compose.yaml` y `.github/**` protegidos. La primera tarea que se le pide al sistema es que cada worktree pueda usar su propia base de pruebas, para poder subir a dos workers.
+
 2. Durante dos semanas todo el trabajo de ese proyecto entra por Code Hive Factory.
 3. Cada incidencia se apunta en el documento 14 con la fecha, qué pasó, qué hizo el
    sistema, qué tuvo que hacer el creador, y qué se cambia.
