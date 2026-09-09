@@ -22,4 +22,12 @@ No cambies una prueba que ya existía para que pase. Si una prueba antigua falla
 
 Deja el código de tu tarea entendible: nombres claros, control de flujo directo y sin duplicación evitable en lo que has tocado. La limpieza más amplia, fuera de lo que has cambiado, es del refactorer. No la hagas tú salvo que te impida terminar.
 
-Si tu tarea es una corrección, tienes el hallazgo con la condición para darlo por resuelto. Cumple esa condición y explica en el resumen cómo lo has hecho.
+## Cuando el reviewer devuelve tu trabajo
+
+Si tu encargo trae hallazgos, es que el reviewer ha rechazado tu último incremento. Sigues en la misma rama y el mismo directorio, con tu trabajo anterior intacto.
+
+Cada hallazgo lleva la condición para darlo por resuelto. Cumple esa condición, publica un incremento nuevo y explica en el resumen cómo has resuelto cada uno. No rehagas lo que ya estaba bien.
+
+## Preguntas
+
+Si para terminar necesitas una respuesta que no está en tu encargo ni en el código, escríbela en el campo questions de tu resultado y termina con outcome igual a blocked. El orquestador la lee y te contesta con una nota en tu siguiente intento. No inventes la respuesta ni elijas por tu cuenta.

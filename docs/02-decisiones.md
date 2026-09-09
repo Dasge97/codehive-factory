@@ -734,6 +734,84 @@ tiene que hacerla el ejecutor y no la propia migración.
 
 ---
 
+## D44 · Una corrección es la misma tarea, en la misma rama
+
+**Origen:** técnica, 9 de septiembre de 2026.
+
+Cuando el reviewer abre un hallazgo blocker o major, la tarea revisada vuelve a `ready` con
+los hallazgos en su encargo, con prioridad alta, y su siguiente intento continúa en su
+misma rama y su mismo worktree. No se crea ninguna tarea de corrección aparte. Lo mismo
+cuando la integración pasa la fusión pero falla las verificaciones: se abre un hallazgo
+bloqueante sobre la tarea y vuelve a la cola.
+
+En modo estricto, la tarea aprobada no pasa a `done` hasta que su limpieza termina. El
+refactorer trabaja en el mismo worktree; cuando su incremento queda aprobado, la tarea
+original queda hecha con el commit del refactor como commit final. Una revisión o una
+limpieza no se integran nunca: se integra la tarea sobre la que trabajaron.
+
+**Por qué:** hasta ahora un hallazgo bloqueante dejaba dos tareas para el mismo trabajo, la
+original de vuelta en `ready` y una `fix` nueva, las dos sobre la misma rama y el mismo
+directorio. Con un worker, el builder hacía la corrección y después volvía a ejecutar la
+tarea original, que publicaba otro incremento y otra revisión. Con dos workers, dos agentes
+escribían en el mismo directorio a la vez. Al integrar una, se borraba la rama que la otra
+necesitaba. Y el refactor tenía el mismo problema: la tarea quedaba integrable mientras el
+refactorer seguía escribiendo en su rama.
+
+**Contra los bucles:** cada incremento rechazado cuenta. Cuando el número de incrementos
+rechazados de una tarea llega a `max_task_attempts`, la tarea se bloquea con los últimos
+hallazgos y el orquestador toma un turno.
+
+**Sustituye a:** los apartados 7.4 y 7.5 del documento de flujo tal como estaban, y la
+tarea de tipo `fix` generada por el sistema. El tipo `fix` sigue existiendo para que el
+orquestador pueda crear una corrección a mano; se comporta como una construcción.
+
+---
+
+## D45 · Ningún agente trabaja en el directorio del creador
+
+**Origen:** técnica, 9 de septiembre de 2026.
+
+Toda ejecución de un motor ocurre en un worktree. Las tareas que escriben código ya lo
+tenían. La revisión trabaja en el worktree de la tarea que revisa, que está parada mientras
+tanto, y lo que deje escrito se descarta al terminar. La investigación trabaja en un
+worktree sin rama sobre la rama principal, que se elimina al terminar. El orquestador es el
+único que mira el repositorio del creador, y solo tiene herramientas de lectura.
+
+La integración exige que el repositorio del creador esté en la rama principal, sin cambios
+sin confirmar, y que la punta de la rama de la tarea sea exactamente el commit aprobado. Si
+no, se niega y dice por qué, sin cambiar nada.
+
+**Por qué:** el reviewer y el investigador se lanzaban en la carpeta de trabajo del creador
+con Bash y sin pedir permiso. «No modifiques ficheros» era una instrucción, no una
+garantía. Y la integración hacía checkout, merge y `reset --hard` en esa misma carpeta sin
+mirar si el creador tenía algo a medias: deshacer una fusión fallida le habría borrado sus
+cambios sin confirmar.
+
+**Coste aceptado:** un worktree más por investigación, con su instalación de dependencias.
+
+---
+
+## D46 · Las preguntas de los agentes llegan al orquestador, y el orquestador contesta con notas
+
+**Origen:** técnica, 9 de septiembre de 2026.
+
+El campo `questions` del resultado de un agente se convierte en mensajes dirigidos al
+orquestador y en un mensaje del agente en el chat. Una pregunta o una tarea bloqueada
+piden un turno del orquestador sin esperar al siguiente mensaje del creador. El plan del
+orquestador gana dos campos: `notes`, indicaciones que una tarea recibe en su siguiente
+ejecución, y `reopen`, tareas bloqueadas que vuelven a la cola con el motivo. El creador
+puede reabrir una tarea bloqueada desde la web.
+
+**Por qué:** el campo `questions` se guardaba y nadie lo leía. Una tarea bloqueada por una
+pregunta se quedaba bloqueada hasta que el creador la encontrara por su cuenta. Y la
+mensajería entre agentes de la fase 2 solo la llamaban las pruebas: ningún agente tenía
+forma de enviar un mensaje. Ahora el único canal real entre agentes son las peticiones de
+apoyo del campo `needs` y las preguntas al orquestador. El escalado al sexto mensaje de la
+decisión D33 sigue en el código, pero no hay hoy ninguna conversación que pueda llegar a
+seis mensajes.
+
+---
+
 ## Decisiones aún abiertas
 
 | Tema | Cuándo se decide |

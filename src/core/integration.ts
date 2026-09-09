@@ -3,10 +3,16 @@ import { promisify } from 'node:util';
 import type { Db } from './db.js';
 import { EventBus, appendEvent } from './events.js';
 import { requireProject } from './projects.js';
-import { openFindings, readyToIntegrate } from './review.js';
+import { openFindings, openSystemFinding, readyToIntegrate } from './review.js';
 import { RuleError, addNotice, requireTask, setStatus } from './tasks.js';
-import { mergeBranch, removeWorktree, resolveCommit, undoLastMerge } from '../workers/git.js';
-import { createTask } from './tasks.js';
+import {
+  currentBranch,
+  isClean,
+  mergeBranch,
+  removeWorktree,
+  resolveCommit,
+  undoLastMerge,
+} from '../workers/git.js';
 import { now } from '../shared/ids.js';
 
 const execFileAsync = promisify(execFile);
@@ -17,7 +23,7 @@ export interface IntegrationResult {
   merge_commit?: string;
   conflicts?: string[];
   verification?: { command: string; passed: boolean; output: string };
-  fix_task_id?: string;
+  finding_id?: string;
 }
 
 /**
@@ -27,7 +33,11 @@ export interface IntegrationResult {
  * Que el reviewer haya aprobado la rama aislada no garantiza que la fusión funcione: los
  * cambios de la rama principal pueden haber roto el comportamiento revisado. Por eso las
  * verificaciones se ejecutan después de fusionar, y si fallan se deshace la fusión y se
- * abre una corrección (documento 07, apartado 7.7).
+ * abre un hallazgo que devuelve la tarea a la cola (documento 07, apartado 7.8).
+ *
+ * La fusión ocurre en el repositorio del creador, así que antes se comprueba que está en
+ * la rama principal y sin cambios sin confirmar. Deshacer una fusión con `reset --hard`
+ * encima de cambios del creador los borraría, y eso no puede pasar (decisión D45).
  */
 export async function integrateTask(db: Db, bus: EventBus, taskId: string): Promise<IntegrationResult> {
   const task = requireTask(db, taskId);
@@ -40,6 +50,9 @@ export async function integrateTask(db: Db, bus: EventBus, taskId: string): Prom
   if (!task.branch) {
     return { integrated: false, reason: 'La tarea no tiene rama asociada.' };
   }
+
+  const impedimento = await impedimentoParaFusionar(project.repo_path, project.main_branch, task.branch, task.head_commit);
+  if (impedimento) return { integrated: false, reason: impedimento };
 
   const commitAnterior = await resolveCommit(project.repo_path, project.main_branch);
 
@@ -90,25 +103,19 @@ export async function integrateTask(db: Db, bus: EventBus, taskId: string): Prom
   }
 
   // Las verificaciones fallan: la rama principal vuelve a como estaba antes de fusionar.
+  // El repositorio estaba limpio antes de empezar, así que el reset solo deshace la fusión.
   await undoLastMerge(project.repo_path, commitAnterior);
 
-  const correccion = createTask(db, bus, {
-    project_id: task.project_id,
-    parent_task_id: task.id,
-    kind: 'fix',
-    title: `Corregir: la integración de "${task.title}" rompe las verificaciones`,
-    goal: `Al fusionar la rama ${task.branch} en ${project.main_branch}, el comando ${project.verify_command} falla.`,
-    scope: 'Corregir solo lo que hace fallar la verificación tras la fusión.',
-    acceptance: `El comando ${project.verify_command} pasa con la rama fusionada.`,
-    required_role: task.required_role,
-    priority: 5,
-    created_by: 'system',
-    branch: task.branch,
-    base_commit: task.head_commit,
+  // El hallazgo devuelve la propia tarea a la cola, sobre su misma rama, con la condición
+  // de resolución delante. No se crea ninguna tarea aparte (decisión D44).
+  const hallazgo = openSystemFinding(db, bus, {
+    task_id: task.id,
+    title: 'La integración rompe las verificaciones',
+    detail:
+      `Al fusionar la rama ${task.branch} en ${project.main_branch}, el comando ${project.verify_command} falla. ` +
+      `La fusión se ha deshecho. Salida:\n${verificacion.output.slice(-2000)}`,
+    resolution: `El comando ${project.verify_command} pasa con la rama fusionada sobre ${project.main_branch}.`,
   });
-
-  setStatus(db, bus, taskId, 'ready', 'la integración rompió las verificaciones');
-  addNotice(db, taskId, 'system', 'La fusión pasó pero las verificaciones fallaron. La fusión se ha deshecho.');
 
   appendEvent(db, bus, {
     project_id: task.project_id,
@@ -118,7 +125,7 @@ export async function integrateTask(db: Db, bus: EventBus, taskId: string): Prom
       integrated: false,
       reason: 'las verificaciones fallaron tras fusionar',
       reverted_to: commitAnterior,
-      fix_task_id: correccion.id,
+      finding_id: hallazgo.id,
       output: verificacion.output.slice(-2000),
     },
   });
@@ -127,8 +134,40 @@ export async function integrateTask(db: Db, bus: EventBus, taskId: string): Prom
     integrated: false,
     reason: 'Las verificaciones fallaron tras fusionar. La fusión se ha deshecho.',
     verification: verificacion,
-    fix_task_id: correccion.id,
+    finding_id: hallazgo.id,
   };
+}
+
+/**
+ * Motivo por el que no se puede fusionar ahora mismo, o null si todo está en orden.
+ *
+ * Ninguna de estas comprobaciones cambia nada: el creador arregla lo que se le dice y
+ * vuelve a pulsar integrar.
+ */
+async function impedimentoParaFusionar(
+  repoPath: string,
+  mainBranch: string,
+  branch: string,
+  headCommit: string | null,
+): Promise<string | null> {
+  const rama = await currentBranch(repoPath);
+  if (rama !== mainBranch) {
+    return `El repositorio está en la rama ${rama}. Cambia a ${mainBranch} antes de integrar.`;
+  }
+
+  if (!(await isClean(repoPath))) {
+    return 'El repositorio tiene cambios sin confirmar. Guárdalos o descártalos antes de integrar: la fusión se hace encima de tu copia de trabajo.';
+  }
+
+  // Lo que se fusiona es la rama entera, así que su punta tiene que ser exactamente el
+  // commit que el reviewer aprobó. Un commit de más es trabajo que nadie ha revisado.
+  const punta = await resolveCommit(repoPath, branch).catch(() => null);
+  if (!punta) return `La rama ${branch} ya no existe.`;
+  if (headCommit && punta !== headCommit) {
+    return `La rama ${branch} tiene commits que no han pasado por revisión (punta ${punta.slice(0, 8)}, aprobado ${headCommit.slice(0, 8)}).`;
+  }
+
+  return null;
 }
 
 /** Cierra una integración correcta: libera el espacio de trabajo y avisa. */
@@ -147,6 +186,10 @@ async function finalizarIntegracion(
     await removeWorktree(repoPath, task.workspace_path, { deleteBranch: branch }).catch(() => undefined);
     db.prepare('UPDATE tasks SET workspace_path = NULL WHERE id = ?').run(taskId);
   }
+
+  // Las revisiones y la limpieza de esta tarea trabajaron en el mismo worktree, que ya no
+  // existe. Se les quita la ruta para que nadie intente volver a él.
+  db.prepare('UPDATE tasks SET workspace_path = NULL WHERE parent_task_id = ?').run(taskId);
 
   db.prepare(
     "UPDATE resource_locks SET released_at = datetime('now') WHERE task_id = ? AND released_at IS NULL",
@@ -203,7 +246,8 @@ export function integrableTasks(db: Db, projectId: string): Array<{ id: string; 
   const candidatas = db
     .prepare(
       `SELECT id, title, branch, head_commit FROM tasks
-       WHERE project_id = ? AND status = 'done' AND head_commit IS NOT NULL AND branch IS NOT NULL`,
+       WHERE project_id = ? AND status = 'done' AND head_commit IS NOT NULL AND branch IS NOT NULL
+         AND integrated_at IS NULL`,
     )
     .all(projectId) as Array<{ id: string; title: string; branch: string; head_commit: string }>;
 

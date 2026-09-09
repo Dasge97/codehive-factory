@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, type Db } from '../core/db.js';
@@ -151,11 +151,51 @@ describe('preparación del espacio de trabajo', () => {
     expect(motor.peticiones[0]!.cwd).toBe(actualizada.workspace_path);
   });
 
-  it('una tarea de investigación trabaja sobre el repositorio, sin worktree', async () => {
+  it('una investigación trabaja en un worktree propio, nunca en el repositorio del creador (D45)', async () => {
     const t = tareaLista({ kind: 'research', required_role: 'builder' });
-    const motor = new MotorSimulado({ resultText: resultadoCompleto() });
+    const motor = new MotorSimulado({ resultText: resultadoCompleto() }, async (req) => {
+      // El agente escribe donde trabaja. Si trabajara en el repositorio, esto lo ensuciaría.
+      writeFileSync(join(req.cwd, 'apuntes.txt'), 'notas del investigador\n');
+    });
     await ejecutar(t, motor);
-    expect(motor.peticiones[0]!.cwd).toBe(repo);
+
+    const cwd = motor.peticiones[0]!.cwd;
+    expect(cwd).not.toBe(repo);
+    expect(cwd.startsWith(workspaces)).toBe(true);
+    expect(await git(repo, ['status', '--porcelain'])).toBe('');
+    // Y al terminar, el worktree desaparece.
+    expect(existsSync(cwd)).toBe(false);
+  });
+
+  it('una revisión trabaja en el worktree del trabajo que revisa, y lo que deje se descarta', async () => {
+    const build = tareaLista();
+    await ejecutar(
+      build,
+      new MotorSimulado({ resultText: resultadoCompleto() }, async (req) => {
+        writeFileSync(join(req.cwd, 'nuevo.txt'), 'trabajo del builder\n');
+        await git(req.cwd, ['add', '-A']);
+        await git(req.cwd, ['-c', 'user.email=a@b.c', '-c', 'user.name=Agente', 'commit', '-q', '-m', 'incremento']);
+      }),
+    );
+    const revision = db
+      .prepare("SELECT * FROM tasks WHERE parent_task_id = ? AND kind = 'review'")
+      .get(build.id) as Task;
+
+    const motorReviewer = new MotorSimulado(
+      { resultText: JSON.stringify({ outcome: 'completed', summary: 'ok', findings: [] }) },
+      async (req) => {
+        writeFileSync(join(req.cwd, 'nuevo.txt'), 'el reviewer lo toca\n');
+        writeFileSync(join(req.cwd, 'basura.txt'), 'restos\n');
+      },
+    );
+    const claim = claimTask(db, bus, { task_id: revision.id, agent_id: builder.id, worker_id: 'wr', engine: 'claude_code' });
+    await runTask(db, bus, { task: requireTask(db, revision.id), agent: builder, run: claim.run!, engine: motorReviewer });
+
+    const worktree = requireTask(db, build.id).workspace_path!;
+    expect(motorReviewer.peticiones[0]!.cwd).toBe(worktree);
+    expect(await git(worktree, ['status', '--porcelain'])).toBe('');
+    expect(readFileSync(join(worktree, 'nuevo.txt'), 'utf8')).toContain('trabajo del builder');
+    expect(existsSync(join(worktree, 'basura.txt'))).toBe(false);
   });
 
   it('el encargo llega al motor con el objetivo y las herramientas del agente', async () => {
@@ -649,6 +689,46 @@ describe('ficheros protegidos del proyecto', () => {
     const t = tareaLista();
     const r = await ejecutar(t, motorQueTocaFichero('package-lock.json'));
     expect(r.incrementId).not.toBeNull();
+  });
+});
+
+describe('las preguntas de un agente llegan al orquestador (D46)', () => {
+  it('cada pregunta se guarda como mensaje al orquestador y se publica en el chat', async () => {
+    const orquestador = createAgent(db, {
+      project_id: proyecto.id, name: 'Orquestador', role: 'orchestrator', engine: 'claude_code',
+      instructions: 'reparte', allowed_tools: ['Read'],
+    });
+    const t = tareaLista({ title: 'Guardar el pedido' });
+
+    const r = await ejecutar(
+      t,
+      new MotorSimulado({
+        resultText: JSON.stringify({
+          outcome: 'blocked',
+          summary: 'No sé qué formato tiene el identificador.',
+          questions: ['¿El identificador del pedido es numérico o texto?'],
+        }),
+      }),
+    );
+
+    expect(r.needsOrchestrator).toBe(true);
+    expect(requireTask(db, t.id).status).toBe('blocked');
+
+    const mensajes = db
+      .prepare('SELECT * FROM agent_messages WHERE to_agent_id = ?')
+      .all(orquestador.id) as Array<{ kind: string; body: string; task_id: string }>;
+    expect(mensajes).toHaveLength(1);
+    expect(mensajes[0]!.kind).toBe('question');
+    expect(mensajes[0]!.task_id).toBe(t.id);
+
+    const chat = db.prepare('SELECT author, body FROM chat_messages').all() as Array<{ author: string; body: string }>;
+    expect(chat.some((m) => m.author === 'builder' && m.body.includes('numérico'))).toBe(true);
+  });
+
+  it('sin preguntas ni bloqueo, el orquestador no hace falta', async () => {
+    const t = tareaLista();
+    const r = await ejecutar(t, new MotorSimulado({ resultText: resultadoCompleto() }));
+    expect(r.needsOrchestrator).toBe(false);
   });
 });
 

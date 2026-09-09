@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, type Db } from './db.js';
@@ -7,7 +7,7 @@ import { EventBus, listEvents } from './events.js';
 import { createAgent, createProject, currentDecisions } from './projects.js';
 import { createTask, requireTask, setStatus } from './tasks.js';
 import { claimTask } from './queue.js';
-import { openFindings, publishIncrement } from './review.js';
+import { listFindings, openFindings, publishIncrement } from './review.js';
 import { applyPlan } from './orchestrator.js';
 import { integrableTasks, integrateTask } from './integration.js';
 import { git, resolveCommit } from '../workers/git.js';
@@ -170,7 +170,7 @@ describe('P1-07 · conflicto al fusionar', () => {
 });
 
 describe('P1-08 · la verificación falla tras fusionar', () => {
-  it('deshace la fusión y abre una corrección', async () => {
+  it('deshace la fusión y devuelve la misma tarea a la cola con un hallazgo bloqueante', async () => {
     // Un comando que siempre termina con error, para simular pruebas que fallan.
     await crearRepo('git rev-parse --verify no-existe-esta-referencia');
     const task = await tareaListaParaIntegrar('linea que rompe las pruebas\n');
@@ -188,14 +188,68 @@ describe('P1-08 · la verificación falla tras fusionar', () => {
     const enMain = await git(repo, ['show', 'main:texto.txt']);
     expect(enMain).toContain('linea original');
 
-    // Se crea una corrección de prioridad alta sobre la misma rama.
-    expect(resultado.fix_task_id).toBeDefined();
-    const correccion = requireTask(db, resultado.fix_task_id!);
-    expect(correccion.kind).toBe('fix');
-    expect(correccion.priority).toBe(5);
-    expect(correccion.branch).toBe(task.branch);
+    // No se crea ninguna tarea aparte: la propia tarea vuelve a la cola, con prioridad
+    // alta, sobre su misma rama, y con el hallazgo que dice qué tiene que cumplir.
+    expect(resultado.finding_id).toBeDefined();
+    const correcciones = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE kind = 'fix'").get() as { n: number };
+    expect(correcciones.n).toBe(0);
 
-    expect(requireTask(db, task.id).status).toBe('ready');
+    const actualizada = requireTask(db, task.id);
+    expect(actualizada.status).toBe('ready');
+    expect(actualizada.priority).toBe(5);
+    expect(actualizada.branch).toBe(task.branch);
+
+    const hallazgos = listFindings(db, task.id);
+    expect(hallazgos).toHaveLength(1);
+    expect(hallazgos[0]!.severity).toBe('blocker');
+    expect(hallazgos[0]!.resolution).toMatch(/pasa con la rama fusionada/);
+  });
+});
+
+describe('D45 · la integración no toca la copia de trabajo del creador', () => {
+  it('con cambios sin confirmar en el repositorio, se niega sin cambiar nada', async () => {
+    await crearRepo(null);
+    const task = await tareaListaParaIntegrar('linea nueva\n');
+
+    // El creador tiene un fichero a medias en su copia de trabajo.
+    writeFileSync(join(repo, 'a-medias.txt'), 'trabajo del creador sin guardar\n');
+    const commitAntes = await resolveCommit(repo, 'main');
+
+    const resultado = await integrateTask(db, bus, task.id);
+
+    expect(resultado.integrated).toBe(false);
+    expect(resultado.reason).toMatch(/cambios sin confirmar/);
+    expect(await resolveCommit(repo, 'main')).toBe(commitAntes);
+    expect(requireTask(db, task.id).status).toBe('done');
+    expect(readFileSync(join(repo, 'a-medias.txt'), 'utf8')).toContain('sin guardar');
+  });
+
+  it('si el repositorio no está en la rama principal, se niega en vez de cambiar de rama', async () => {
+    await crearRepo(null);
+    const task = await tareaListaParaIntegrar('linea nueva\n');
+    await git(repo, ['checkout', '-q', '-b', 'trabajo-del-creador']);
+
+    const resultado = await integrateTask(db, bus, task.id);
+
+    expect(resultado.integrated).toBe(false);
+    expect(resultado.reason).toMatch(/trabajo-del-creador/);
+    expect(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('trabajo-del-creador');
+  });
+
+  it('si la rama tiene commits que nadie revisó, se niega', async () => {
+    await crearRepo(null);
+    const task = await tareaListaParaIntegrar('linea nueva\n');
+
+    // Alguien añade un commit a la rama después de la aprobación.
+    const worktree = requireTask(db, task.id).workspace_path!;
+    writeFileSync(join(worktree, 'extra.txt'), 'sin revisar\n');
+    await git(worktree, ['add', '-A']);
+    await git(worktree, ['-c', 'user.email=a@b.c', '-c', 'user.name=Agente', 'commit', '-q', '-m', 'extra']);
+
+    const resultado = await integrateTask(db, bus, task.id);
+
+    expect(resultado.integrated).toBe(false);
+    expect(resultado.reason).toMatch(/no han pasado por revisión/);
   });
 });
 

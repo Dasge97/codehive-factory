@@ -89,18 +89,15 @@ export function buildAssignment(db: Db, taskId: string): Assignment {
 /**
  * Hallazgos que el agente tiene que tener delante.
  *
- * Una tarea de corrección recibe los hallazgos que la originaron. Cualquier otra tarea
- * recibe los que siguen abiertos sobre su propio trabajo.
+ * Una revisión recibe los que siguen abiertos sobre el trabajo que revisa, para comprobar
+ * si el incremento nuevo los resuelve. Cualquier otra tarea recibe los que siguen abiertos
+ * sobre su propio trabajo, que son los que tiene que corregir (decisión D44).
  */
 function findingsForTask(db: Db, task: Task): Assignment['findings'] {
-  const filas =
-    task.kind === 'fix'
-      ? (db
-          .prepare("SELECT * FROM findings WHERE fix_task_id = ? AND status = 'open'")
-          .all(task.id) as Finding[])
-      : (db
-          .prepare("SELECT * FROM findings WHERE source_task_id = ? AND status = 'open'")
-          .all(task.id) as Finding[]);
+  const dueno = task.kind === 'review' && task.parent_task_id ? task.parent_task_id : task.id;
+  const filas = db
+    .prepare("SELECT * FROM findings WHERE source_task_id = ? AND status = 'open'")
+    .all(dueno) as Finding[];
 
   return filas.map((f) => ({
     id: f.id,
@@ -213,16 +210,17 @@ export function renderAssignment(assignment: Assignment): string {
   }
 
   if (assignment.findings.length > 0) {
+    const lista = assignment.findings
+      .map((f) => `### [${f.severity}] ${f.title}\n${f.detail}\n\nSe da por resuelto cuando: ${f.resolution}`)
+      .join('\n\n');
+
     partes.push(
-      seccion(
-        'Hallazgos que debes resolver',
-        assignment.findings
-          .map(
-            (f) =>
-              `### [${f.severity}] ${f.title}\n${f.detail}\n\nSe da por resuelto cuando: ${f.resolution}`,
+      assignment.task.kind === 'review'
+        ? seccion(
+            'Hallazgos abiertos sobre el trabajo que revisas',
+            `${lista}\n\nComprueba si el incremento que revisas cumple la condición de cada uno. El que siga sin cumplirse, vuelve a abrirlo en tu resultado. El que ya se cumpla, no lo repitas: el sistema lo da por resuelto.`,
           )
-          .join('\n\n'),
-      ),
+        : seccion('Hallazgos que debes resolver', lista),
     );
   }
 

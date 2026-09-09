@@ -113,6 +113,42 @@ export async function ensureWorktree(
   return { created: true, baseCommit: await resolveCommit(worktreePath, 'HEAD') };
 }
 
+/**
+ * Prepara un espacio de trabajo de solo lectura sobre un commit concreto, sin rama.
+ *
+ * Lo usan las tareas que no publican código, como una investigación o una revisión cuyo
+ * trabajo original ya no tiene worktree. Ningún agente trabaja en el directorio del
+ * creador: un motor con Bash puede escribir donde quiera, y el único sitio donde eso no
+ * hace daño es un worktree propio.
+ */
+export async function ensureDetachedWorktree(
+  repoPath: string,
+  worktreePath: string,
+  commit: string,
+): Promise<{ created: boolean }> {
+  if (existsSync(worktreePath) && (await isGitRepo(worktreePath))) {
+    return { created: false };
+  }
+  await git(repoPath, ['worktree', 'add', '--detach', worktreePath, commit]);
+  return { created: true };
+}
+
+/**
+ * Deja un worktree exactamente como su último commit: sin cambios ni ficheros nuevos.
+ *
+ * Se usa después de una revisión. El reviewer trabaja en el worktree del builder, y lo
+ * que dejara escrito allí acabaría dentro del siguiente commit del builder.
+ */
+export async function discardChanges(worktreePath: string): Promise<void> {
+  await git(worktreePath, ['reset', '--hard', '--quiet']);
+  await git(worktreePath, ['clean', '-fd', '--quiet']);
+}
+
+/** Verdadero si el directorio de trabajo no tiene cambios sin confirmar ni ficheros nuevos. */
+export async function isClean(repoPath: string): Promise<boolean> {
+  return (await uncommittedFiles(repoPath)).length === 0;
+}
+
 /** Quita el worktree de una tarea y, si se pide, borra también su rama. */
 export async function removeWorktree(
   repoPath: string,
@@ -178,6 +214,10 @@ export interface MergeResult {
  *
  * Si hay conflicto, deshace la fusión antes de devolver el control: la rama principal
  * nunca queda a medias esperando a que alguien resuelva algo a mano.
+ *
+ * No cambia de rama por su cuenta: quien llama comprueba antes que el repositorio está en
+ * la rama principal y limpio. Cambiar de rama debajo del editor del creador, o fusionar
+ * encima de sus cambios sin confirmar, es justo lo que no puede pasar.
  */
 export async function mergeBranch(
   repoPath: string,
@@ -187,7 +227,11 @@ export async function mergeBranch(
 ): Promise<MergeResult> {
   const ramaActual = await currentBranch(repoPath);
   if (ramaActual !== mainBranch) {
-    await git(repoPath, ['checkout', mainBranch]);
+    return {
+      merged: false,
+      conflicts: [],
+      message: `El repositorio está en la rama ${ramaActual}, no en ${mainBranch}.`,
+    };
   }
 
   try {
@@ -215,7 +259,7 @@ async function conflictedFiles(repoPath: string): Promise<string[]> {
 
 /**
  * Deshace la última fusión de la rama principal. Se usa cuando las verificaciones fallan
- * después de integrar (documento 07, apartado 7.7).
+ * después de integrar (documento 07, apartado 7.8).
  */
 export async function undoLastMerge(repoPath: string, commitAnterior: string): Promise<void> {
   await git(repoPath, ['reset', '--hard', commitAnterior]);

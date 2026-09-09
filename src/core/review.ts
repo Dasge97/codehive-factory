@@ -14,11 +14,14 @@ import type {
   Task,
 } from '../shared/types.js';
 
-/** Prioridad con la que entra una corrección, según lo grave que sea el hallazgo. */
+/** Prioridad con la que vuelve a la cola una tarea con hallazgos, según lo grave que sea el peor. */
 const PRIORIDAD_POR_GRAVEDAD = { blocker: 5, major: 20, minor: 60 } as const;
 
-/** Tipos de tarea que escriben código y que, por tanto, pueden pasar por el refactorer. */
-const ESCRIBEN_CODIGO = new Set(['build', 'fix']);
+/** Gravedades que obligan a corregir antes de dar el trabajo por bueno. */
+const OBLIGAN_A_CORREGIR = new Set(['blocker', 'major']);
+
+/** Tipos de tarea cuyo trabajo aprobado pasa por el refactorer en modo estricto. */
+const PASAN_POR_REFACTORER = new Set(['build', 'fix']);
 
 /**
  * Decide si el incremento de una tarea tiene que pasar por el reviewer.
@@ -201,18 +204,24 @@ export interface OpenFindingsInput {
 
 export interface OpenFindingsResult {
   findings: Finding[];
-  fix_tasks: Task[];
+  /** Verdadero si la tarea revisada vuelve a la cola para corregir lo encontrado. */
+  reopened: boolean;
   blocking: boolean;
   /** La tarea de limpieza que abre el modo estricto cuando la revisión aprueba. */
   refactor_task: Task | null;
 }
 
 /**
- * Registra los hallazgos de una revisión y abre una corrección por cada uno que lo
- * merezca.
+ * Registra el veredicto de una revisión y decide qué pasa con la tarea revisada.
  *
- * Los hallazgos leves se registran sin crear trabajo: si cada detalle menor abriera una
- * tarea, la cola de correcciones ahogaría al resto del proyecto.
+ * Con hallazgos que obligan a corregir, la propia tarea revisada vuelve a la cola con
+ * ellos delante, y su siguiente intento trabaja sobre la misma rama. No se crea ninguna
+ * tarea aparte para corregir: una unidad de trabajo integrable es una tarea, una rama y un
+ * worktree, y quien mejor sabe arreglar un incremento es quien lo escribió (decisión D44).
+ *
+ * Con hallazgos leves o sin ninguno, el incremento queda aprobado. Los leves se registran
+ * para que el creador los vea, sin abrir trabajo: si cada detalle menor volviera a poner
+ * la tarea en la cola, el proyecto no avanzaría nunca.
  */
 export function openFindings(db: Db, bus: EventBus, input: OpenFindingsInput): OpenFindingsResult {
   const reviewTask = requireTask(db, input.review_task_id);
@@ -221,9 +230,13 @@ export function openFindings(db: Db, bus: EventBus, input: OpenFindingsInput): O
     throw new RuleError(`La tarea de revisión ${reviewTask.id} no apunta a la tarea revisada.`);
   }
   const sourceTask = requireTask(db, sourceTaskId);
+  const project = requireProject(db, sourceTask.project_id);
+
+  // Un veredicto nuevo sustituye al anterior. Lo que el reviewer no vuelve a abrir sobre
+  // este incremento se da por resuelto: sus instrucciones le piden repetir lo que siga mal.
+  resolveOpenFindings(db, bus, sourceTaskId, input.increment_id);
 
   const creados: Finding[] = [];
-  const correcciones: Task[] = [];
   const eventos: SystemEvent[] = [];
 
   for (const entrada of input.findings) {
@@ -252,30 +265,6 @@ export function openFindings(db: Db, bus: EventBus, input: OpenFindingsInput): O
     const finding = db.prepare('SELECT * FROM findings WHERE id = ?').get(id) as Finding;
     creados.push(finding);
 
-    if (entrada.severity !== 'minor') {
-      const correccion = createTask(db, bus, {
-        project_id: reviewTask.project_id,
-        parent_task_id: sourceTaskId,
-        kind: 'fix',
-        title: `Corregir: ${entrada.title}`,
-        goal: entrada.detail,
-        scope: `Corregir el hallazgo sobre el incremento ${input.increment_id}. No amplíes el alcance.`,
-        acceptance: entrada.resolution,
-        required_role: sourceTask.required_role,
-        priority: PRIORIDAD_POR_GRAVEDAD[entrada.severity],
-        created_by: 'system',
-        branch: sourceTask.branch,
-        base_commit: sourceTask.head_commit ?? sourceTask.base_commit,
-      });
-
-      db.prepare('UPDATE findings SET fix_task_id = ? WHERE id = ?').run(correccion.id, id);
-      correcciones.push(correccion);
-
-      // El aviso lo recibe la tarea original en su siguiente ejecución, no en la que
-      // pueda tener en curso (decisión D12).
-      addNotice(db, sourceTaskId, 'reviewer', `Hallazgo abierto: ${entrada.title}`);
-    }
-
     eventos.push(
       insertEvent(db, {
         project_id: reviewTask.project_id,
@@ -285,45 +274,139 @@ export function openFindings(db: Db, bus: EventBus, input: OpenFindingsInput): O
           finding_id: id,
           severity: entrada.severity,
           title: entrada.title,
-          fix_task_id: finding.fix_task_id,
           review_task_id: reviewTask.id,
         },
       }),
     );
   }
 
+  const corregir = creados.filter((f) => OBLIGAN_A_CORREGIR.has(f.severity));
   const blocking = creados.some((f) => f.severity === 'blocker');
-
-  // Aprobar el incremento de una corrección es lo que da por resuelto el hallazgo que la
-  // originó. La aprobación de un incremento anterior no se traslada nunca a este.
-  if (creados.length === 0 && sourceTask.kind === 'fix') {
-    resolveFindingsOfFixTask(db, bus, sourceTask.id);
-  }
 
   const eventosEstado = inImmediateTransaction(db, () => {
     db.prepare('UPDATE increments SET review_status = ? WHERE id = ?').run(
-      creados.length === 0 ? 'approved' : 'rejected',
+      corregir.length === 0 ? 'approved' : 'rejected',
       input.increment_id,
     );
 
-    const actual = requireTask(db, sourceTaskId);
-    if (creados.length === 0 && actual.status === 'in_review') {
-      return setStatusInternal(db, sourceTaskId, 'done', 'revisión sin hallazgos');
-    }
-    if (blocking && actual.status === 'in_review') {
-      return setStatusInternal(db, sourceTaskId, 'ready', 'hallazgo bloqueante abierto');
-    }
-    return [];
+    if (corregir.length === 0) return aprobar(db, sourceTaskId);
+    return devolverACorregir(db, project, sourceTaskId, corregir);
   });
 
   publishEvents(bus, [...eventos, ...eventosEstado]);
 
   // En modo estricto, el trabajo aprobado sigue camino hacia el refactorer. La cadena no
   // se puede encadenar sola: un refactor aprobado no abre otro refactor.
-  const refactor =
-    creados.length === 0 ? crearRefactorSiProcede(db, bus, sourceTask, input.increment_id) : null;
+  const refactor = corregir.length === 0 ? crearRefactorSiProcede(db, bus, sourceTask, input.increment_id) : null;
 
-  return { findings: creados, fix_tasks: correcciones, blocking, refactor_task: refactor };
+  // Si no hay limpieza pendiente, el trabajo aprobado queda hecho. Si la hay, la tarea
+  // espera en revisión hasta que el refactorer termine: integrar antes fusionaría una rama
+  // en la que alguien sigue escribiendo.
+  if (corregir.length === 0 && !refactor) {
+    cerrarTareaAprobada(db, bus, sourceTaskId);
+  }
+
+  return { findings: creados, reopened: corregir.length > 0, blocking, refactor_task: refactor };
+}
+
+/** Aprobación: no cambia el estado todavía; lo cierra `cerrarTareaAprobada` si no hay limpieza. */
+function aprobar(db: Db, taskId: string): SystemEvent[] {
+  requireTask(db, taskId);
+  return [];
+}
+
+/**
+ * Devuelve la tarea revisada a la cola con sus hallazgos, o la bloquea si ya ha agotado
+ * las rondas de corrección que permite el proyecto.
+ *
+ * Sin el límite, un builder que nunca cumple la condición de resolución y un reviewer que
+ * siempre la exige se pasarían la tarea indefinidamente gastando cuota (documento 07,
+ * apartado 7.5).
+ */
+function devolverACorregir(db: Db, project: Project, taskId: string, hallazgos: Finding[]): SystemEvent[] {
+  const task = requireTask(db, taskId);
+  const peor = hallazgos.some((f) => f.severity === 'blocker') ? 'blocker' : 'major';
+
+  addNotice(
+    db,
+    taskId,
+    'reviewer',
+    `El reviewer ha rechazado tu último incremento con ${hallazgos.length} hallazgos. Los tienes en tu encargo, con la condición para dar cada uno por resuelto.`,
+  );
+
+  if (task.status !== 'in_review') return [];
+
+  const rechazados = db
+    .prepare("SELECT COUNT(*) AS n FROM increments WHERE task_id = ? AND review_status = 'rejected'")
+    .get(taskId) as { n: number };
+
+  if (rechazados.n >= project.max_task_attempts) {
+    return setStatusInternal(
+      db,
+      taskId,
+      'blocked',
+      `El reviewer ha rechazado ${rechazados.n} incrementos seguidos. El último con: ${hallazgos.map((f) => f.title).join('; ')}`,
+    );
+  }
+
+  // La corrección entra por delante del trabajo nuevo: lo que ya está a medias se termina
+  // antes de empezar otra cosa (requisito A04).
+  const prioridad = Math.min(task.priority, PRIORIDAD_POR_GRAVEDAD[peor]);
+  db.prepare('UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?').run(prioridad, now(), taskId);
+
+  return setStatusInternal(db, taskId, 'ready', `el reviewer ha abierto ${hallazgos.length} hallazgos que hay que corregir`);
+}
+
+/**
+ * Cierra una tarea cuyo último incremento ha quedado aprobado y no espera limpieza.
+ *
+ * Si la tarea era un refactor, el trabajo que limpiaba también queda hecho, con el commit
+ * del refactor como su commit final: es lo que se integrará.
+ */
+function cerrarTareaAprobada(db: Db, bus: EventBus, taskId: string): void {
+  const eventos = inImmediateTransaction(db, () => {
+    const task = requireTask(db, taskId);
+    if (task.status !== 'in_review') return [];
+
+    const propios = setStatusInternal(db, taskId, 'done', 'revisión aprobada');
+    if (task.kind !== 'refactor' || !task.parent_task_id) return propios;
+
+    return [...propios, ...cerrarTrasLimpiezaInternal(db, task.parent_task_id, task.head_commit)];
+  });
+  publishEvents(bus, eventos);
+}
+
+/** Cierra el trabajo que esperaba a su refactor, apuntando al commit final de la rama. */
+function cerrarTrasLimpiezaInternal(db: Db, parentId: string, commitFinal: string | null): SystemEvent[] {
+  const parent = requireTask(db, parentId);
+  if (parent.status !== 'in_review') return [];
+
+  if (commitFinal) {
+    db.prepare('UPDATE tasks SET head_commit = ?, updated_at = ? WHERE id = ?').run(commitFinal, now(), parentId);
+  }
+  return setStatusInternal(db, parentId, 'done', 'revisión aprobada y limpieza terminada');
+}
+
+/**
+ * Da por terminado un refactor que no dejó nada que revisar, o que se abandonó.
+ *
+ * El trabajo que esperaba a esa limpieza queda hecho con el commit que ya tenía aprobado.
+ * Quien llama se encarga de que la rama vuelva a ese commit si el refactor dejó algo
+ * encima (documento 07, apartado 7.6).
+ */
+export function cerrarTrasLimpieza(db: Db, bus: EventBus, refactorTaskId: string): void {
+  const refactor = requireTask(db, refactorTaskId);
+  if (refactor.kind !== 'refactor' || !refactor.parent_task_id) return;
+
+  const eventos = inImmediateTransaction(db, () =>
+    cerrarTrasLimpiezaInternal(
+      db,
+      refactor.parent_task_id!,
+      // Solo un refactor aprobado mueve el commit final. Uno abandonado no.
+      refactor.status === 'done' ? refactor.head_commit : null,
+    ),
+  );
+  publishEvents(bus, eventos);
 }
 
 /**
@@ -340,14 +423,14 @@ function crearRefactorSiProcede(
 ): Task | null {
   const project = requireProject(db, sourceTask.project_id);
   if (project.mode !== 'strict') return null;
-  if (!ESCRIBEN_CODIGO.has(sourceTask.kind)) return null;
+  if (!PASAN_POR_REFACTORER.has(sourceTask.kind)) return null;
 
   const increment = db.prepare('SELECT * FROM increments WHERE id = ?').get(incrementId) as
     | Increment
     | undefined;
   if (!increment) return null;
 
-  return createTask(db, bus, {
+  const refactor = createTask(db, bus, {
     project_id: sourceTask.project_id,
     parent_task_id: sourceTask.id,
     kind: 'refactor',
@@ -363,16 +446,38 @@ function crearRefactorSiProcede(
     branch: increment.branch,
     base_commit: increment.commit_sha,
   });
+
+  publishEvents(bus, [
+    insertEvent(db, {
+      project_id: sourceTask.project_id,
+      type: 'task.status_changed',
+      task_id: sourceTask.id,
+      payload: {
+        from: sourceTask.status,
+        to: sourceTask.status,
+        reason: 'revisión aprobada; espera a que el refactorer termine su limpieza',
+        refactor_task_id: refactor.id,
+      },
+    }),
+  ]);
+
+  return refactor;
 }
 
 /**
- * Da por resueltos los hallazgos que una corrección venía a arreglar. Se llama cuando el
- * reviewer aprueba el incremento que produjo esa corrección.
+ * Da por resueltos los hallazgos abiertos de una tarea que vienen de incrementos
+ * anteriores al indicado. Se llama cuando el reviewer da un veredicto nuevo: lo que no
+ * vuelve a abrir está resuelto.
  */
-export function resolveFindingsOfFixTask(db: Db, bus: EventBus, fixTaskId: string): Finding[] {
-  const abiertos = db
-    .prepare("SELECT * FROM findings WHERE fix_task_id = ? AND status = 'open'")
-    .all(fixTaskId) as Finding[];
+export function resolveOpenFindings(
+  db: Db,
+  bus: EventBus,
+  taskId: string,
+  exceptoIncrementId: string | null = null,
+): Finding[] {
+  const abiertos = (db
+    .prepare("SELECT * FROM findings WHERE source_task_id = ? AND status = 'open'")
+    .all(taskId) as Finding[]).filter((f) => f.increment_id !== exceptoIncrementId);
 
   const eventos: SystemEvent[] = [];
   for (const finding of abiertos) {
@@ -382,13 +487,70 @@ export function resolveFindingsOfFixTask(db: Db, bus: EventBus, fixTaskId: strin
         project_id: finding.project_id,
         type: 'finding.resolved',
         task_id: finding.source_task_id,
-        payload: { finding_id: finding.id, fix_task_id: fixTaskId },
+        payload: { finding_id: finding.id },
       }),
     );
   }
 
   publishEvents(bus, eventos);
   return abiertos;
+}
+
+export interface SystemFindingInput {
+  task_id: string;
+  title: string;
+  detail: string;
+  resolution: string;
+}
+
+/**
+ * Abre un hallazgo bloqueante que no viene del reviewer sino del propio sistema, sobre el
+ * último incremento de una tarea, y devuelve la tarea a la cola para que lo corrija.
+ *
+ * Lo usa la integración cuando la fusión pasa pero las verificaciones fallan.
+ */
+export function openSystemFinding(db: Db, bus: EventBus, input: SystemFindingInput): Finding {
+  const task = requireTask(db, input.task_id);
+  const project = requireProject(db, task.project_id);
+  const incremento = db
+    .prepare('SELECT * FROM increments WHERE task_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(task.id) as Increment | undefined;
+  if (!incremento) throw new RuleError(`La tarea ${task.id} no tiene ningún incremento sobre el que abrir un hallazgo.`);
+
+  const id = newId('finding');
+  const eventos = inImmediateTransaction(db, () => {
+    db.prepare(
+      `INSERT INTO findings (
+         id, project_id, increment_id, source_task_id, severity, title, detail,
+         resolution, status, created_at
+       ) VALUES (?, ?, ?, ?, 'blocker', ?, ?, ?, 'open', ?)`,
+    ).run(id, task.project_id, incremento.id, task.id, input.title, input.detail, input.resolution, now());
+
+    db.prepare("UPDATE increments SET review_status = 'rejected' WHERE id = ?").run(incremento.id);
+
+    const abierto = insertEvent(db, {
+      project_id: task.project_id,
+      type: 'finding.opened',
+      task_id: task.id,
+      payload: { finding_id: id, severity: 'blocker', title: input.title, review_task_id: null },
+    });
+
+    addNotice(db, task.id, 'system', `${input.title}. ${input.detail}`);
+
+    const actual = requireTask(db, task.id);
+    if (actual.status !== 'done' && actual.status !== 'in_review') return [abierto];
+
+    db.prepare('UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?').run(
+      Math.min(actual.priority, PRIORIDAD_POR_GRAVEDAD.blocker),
+      now(),
+      task.id,
+    );
+    return [abierto, ...setStatusInternal(db, task.id, 'ready', input.title)];
+  });
+
+  publishEvents(bus, eventos);
+  void project;
+  return db.prepare('SELECT * FROM findings WHERE id = ?').get(id) as Finding;
 }
 
 /** Hallazgos abiertos que impiden integrar una tarea. */
@@ -410,20 +572,24 @@ export function listIncrements(db: Db, taskId: string): Increment[] {
     .all(taskId) as Increment[];
 }
 
+/** Tipos de tarea que comparten rama con la tarea que revisan o limpian, y por eso no se integran solas. */
+const NO_SE_INTEGRAN = new Set(['review', 'refactor']);
+
 /**
  * Decide si una tarea puede integrarse: está terminada, tiene un commit publicado y no
- * arrastra hallazgos bloqueantes (documento 07, apartado 7.7).
+ * arrastra hallazgos bloqueantes (documento 07, apartado 7.8).
  */
 export function readyToIntegrate(db: Db, taskId: string): { ready: boolean; reason?: string } {
   const task = requireTask(db, taskId);
   requireProject(db, task.project_id);
 
-  // Una revisión comparte rama con la tarea que revisó y no publica código propio.
-  // Integrarla sería fusionar dos veces lo mismo.
-  if (task.kind === 'review') {
-    return { ready: false, reason: 'Una revisión no se integra: se integra la tarea que revisó.' };
+  // Una revisión o una limpieza comparte rama con la tarea sobre la que trabaja. Integrarla
+  // sería fusionar dos veces lo mismo, o fusionar una limpieza a medias.
+  if (NO_SE_INTEGRAN.has(task.kind)) {
+    return { ready: false, reason: 'Una revisión o una limpieza no se integra: se integra la tarea sobre la que trabajó.' };
   }
 
+  if (task.integrated_at) return { ready: false, reason: 'La tarea ya está integrada en la rama principal.' };
   if (task.status !== 'done') return { ready: false, reason: `La tarea está en estado ${task.status}.` };
   if (!task.head_commit) return { ready: false, reason: 'La tarea no ha publicado ningún commit.' };
 

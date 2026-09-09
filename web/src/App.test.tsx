@@ -167,7 +167,7 @@ function servidorSimulado(entrada: string | URL | Request, opciones?: RequestIni
           id: 'fnd_1', severity: 'blocker', title: 'Acepta la cadena vacía',
           detail: 'La validación deja pasar un nombre vacío.',
           resolution: 'Un nombre vacío devuelve error.',
-          file_path: 'src/validate.ts', line: 42, status: 'open', fix_task_id: 'tsk_fix',
+          file_path: 'src/validate.ts', line: 42, status: 'open', fix_task_id: null,
           created_at: new Date().toISOString(),
         },
       ],
@@ -565,11 +565,12 @@ describe('detalle de una tarea', () => {
     render(<App />);
     const panel = await abrirTarea('Validación de nombres');
 
-    // El hallazgo, con su condición de resolución y su corrección.
+    // El hallazgo, con su condición de resolución. La corrección la hace la misma tarea
+    // sobre su misma rama, así que no hay ninguna otra tarea que abrir.
     expect(panel.textContent).toContain('Acepta la cadena vacía');
     expect(panel.textContent).toContain('Se da por resuelto cuando: Un nombre vacío devuelve error.');
     expect(panel.textContent).toContain('src/validate.ts:42');
-    expect(screen.getByRole('button', { name: 'Ver la corrección' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Ver la corrección' })).toBeNull();
 
     // El incremento revisado, y lo que hizo la ejecución.
     expect(panel.textContent).toContain('a1b2c3d4');

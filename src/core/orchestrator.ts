@@ -5,7 +5,8 @@ import { agentForRole, currentDecisions, currentRevision, listAgents, recordDeci
 import { blockingFindings, listFindings } from './review.js';
 import { integrableTasks } from './integration.js';
 import { conversacionActual, ponerTituloSiFalta, tocarConversacion } from './conversations.js';
-import { createTask, listTasks, requireTask, setPriority, setStatus } from './tasks.js';
+import { pendingForAgent } from './agent-messages.js';
+import { addNotice, createTask, listTasks, requireTask, setPriority, setStatus } from './tasks.js';
 import { queueForRole, razonDeEspera } from './queue.js';
 import { newId, now } from '../shared/ids.js';
 import {
@@ -53,6 +54,16 @@ export const orchestratorPlanSchema = z.object({
     .nullable()
     .optional(),
   cancellations: z
+    .array(z.object({ task_id: z.string(), reason: z.string().min(1) }))
+    .nullable()
+    .optional(),
+  /** Respuestas o indicaciones para una tarea concreta. Le llegan en su siguiente ejecución. */
+  notes: z
+    .array(z.object({ task_id: z.string(), body: z.string().min(1) }))
+    .nullable()
+    .optional(),
+  /** Tareas bloqueadas que vuelven a la cola, con lo que ha cambiado para que ahora sí puedan avanzar. */
+  reopen: z
     .array(z.object({ task_id: z.string(), reason: z.string().min(1) }))
     .nullable()
     .optional(),
@@ -142,10 +153,38 @@ export const ORCHESTRATOR_PLAN_JSON_SCHEMA = {
         additionalProperties: false,
       },
     },
+    notes: {
+      type: ['array', 'null'],
+      description:
+        'Respuestas a las preguntas de los agentes, o indicaciones para una tarea concreta. La tarea las recibe en su siguiente ejecución. Null si no hay ninguna.',
+      items: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string', description: 'Tarea a la que va dirigida la nota.' },
+          body: { type: 'string', description: 'La respuesta o la indicación, en lenguaje llano.' },
+        },
+        required: ['task_id', 'body'],
+        additionalProperties: false,
+      },
+    },
+    reopen: {
+      type: ['array', 'null'],
+      description:
+        'Tareas bloqueadas que vuelven a la cola porque ya tienen lo que les faltaba. Acompaña cada una de una nota que diga qué ha cambiado. Null si no hay ninguna.',
+      items: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string' },
+          reason: { type: 'string', description: 'Qué ha cambiado para que ahora sí pueda avanzar.' },
+        },
+        required: ['task_id', 'reason'],
+        additionalProperties: false,
+      },
+    },
   },
   // Todas las propiedades van en `required` porque Codex lo exige; las que no se usan van
   // a null (decisión D35).
-  required: ['reply', 'project_goal', 'tasks', 'decisions', 'priority_changes', 'cancellations'],
+  required: ['reply', 'project_goal', 'tasks', 'decisions', 'priority_changes', 'cancellations', 'notes', 'reopen'],
   additionalProperties: false,
 } as const;
 
@@ -223,6 +262,12 @@ export interface ProjectSnapshot {
   mode: ProjectMode;
   chat: Array<{ author: string; body: string }>;
   pending_approvals: Array<{ id: string; task_id: string; request: string }>;
+  /**
+   * Preguntas y escalados que los agentes han dirigido al orquestador y que todavía no ha
+   * visto. Cada una lleva la tarea desde la que se hizo, para poder responderla con una
+   * nota a esa tarea.
+   */
+  questions: Array<{ task_id: string | null; task_title: string | null; from_role: string; kind: string; body: string }>;
 }
 
 /** Reúne el estado del proyecto que el orquestador necesita para decidir. */
@@ -291,9 +336,27 @@ export function projectSnapshot(db: Db, projectId: string, chatLimit = 20): Proj
     )
     .all(projectId) as Array<{ id: string; task_id: string; request: string }>;
 
+  const orquestador = agentForRole(db, projectId, 'orchestrator');
+  const preguntas = orquestador
+    ? pendingForAgent(db, orquestador.id)
+        .filter((m) => m.kind !== 'notice')
+        .map((m) => {
+          const tarea = m.task_id ? (db.prepare('SELECT title FROM tasks WHERE id = ?').get(m.task_id) as { title: string } | undefined) : undefined;
+          const autor = db.prepare('SELECT role FROM agents WHERE id = ?').get(m.from_agent_id) as { role: string } | undefined;
+          return {
+            task_id: m.task_id,
+            task_title: tarea?.title ?? null,
+            from_role: autor?.role ?? 'agente',
+            kind: m.kind,
+            body: m.body,
+          };
+        })
+    : [];
+
   return {
     goal: project.goal,
     mode: project.mode,
+    questions: preguntas,
     integrated: integradas.map((t) => ({ id: t.id, title: t.title })),
     findings: hallazgos,
     integrable: integrableTasks(db, projectId).map((t) => ({
@@ -389,6 +452,19 @@ export function renderOrchestratorPrompt(snapshot: ProjectSnapshot, mensajeNuevo
     );
   }
 
+  if (snapshot.questions.length > 0) {
+    partes.push(
+      '\n## Preguntas de los agentes\n' +
+        'Cada una viene de una tarea. Respóndela con una nota a esa tarea (campo notes). Si la tarea está bloqueada y con tu respuesta ya puede seguir, reábrela (campo reopen). Si necesitas al creador, pregúntaselo en tu respuesta.\n' +
+        snapshot.questions
+          .map((q) => {
+            const tarea = q.task_id ? `[${q.task_id}] ${q.task_title ?? ''}`.trim() : 'sin tarea';
+            return `- ${q.from_role}, sobre ${tarea}: ${q.body}`;
+          })
+          .join('\n'),
+    );
+  }
+
   if (snapshot.chat.length > 0) {
     partes.push('\n## Conversación reciente\n' + snapshot.chat.map((m) => `${m.author}: ${m.body}`).join('\n'));
   }
@@ -444,7 +520,7 @@ export function applyPlan(db: Db, bus: EventBus, projectId: string, plan: Orches
       });
 
       // Un cambio de decisión marca para reevaluar el trabajo que se creó con la revisión
-      // anterior. El trabajo compatible sigue sin tocarse (documento 07, apartado 7.8).
+      // anterior. El trabajo compatible sigue sin tocarse (documento 07, apartado 7.9).
       if (anterior) {
         db.prepare(
           `UPDATE tasks SET needs_reeval = 1, updated_at = ?
@@ -535,6 +611,31 @@ export function applyPlan(db: Db, bus: EventBus, projectId: string, plan: Orches
       setStatus(db, bus, cancelacion.task_id, 'cancelled', cancelacion.reason);
     } catch (e) {
       errores.push(`No se pudo cancelar ${cancelacion.task_id}: ${mensaje(e)}`);
+    }
+  }
+
+  // Las notas llegan a la tarea en su siguiente ejecución, que es el punto seguro para
+  // entregar información a un agente (decisión D12).
+  for (const nota of plan.notes ?? []) {
+    try {
+      requireTask(db, nota.task_id);
+      addNotice(db, nota.task_id, 'orchestrator', nota.body);
+    } catch (e) {
+      errores.push(`No se pudo dejar la nota a ${nota.task_id}: ${mensaje(e)}`);
+    }
+  }
+
+  for (const reapertura of plan.reopen ?? []) {
+    try {
+      const tarea = requireTask(db, reapertura.task_id);
+      if (tarea.status !== 'blocked') {
+        errores.push(`La tarea ${reapertura.task_id} no está bloqueada, está en ${tarea.status}.`);
+        continue;
+      }
+      addNotice(db, reapertura.task_id, 'orchestrator', `Se reabre: ${reapertura.reason}`);
+      setStatus(db, bus, reapertura.task_id, 'ready', reapertura.reason);
+    } catch (e) {
+      errores.push(`No se pudo reabrir ${reapertura.task_id}: ${mensaje(e)}`);
     }
   }
 

@@ -40,11 +40,29 @@ pasan, pero hizo falta tocar el esquema» sí.
 Si un agente dice que necesitó algo que no pudo hacer, crea la tarea que falta.
 
 Los hallazgos abiertos del reviewer traen la condición para darlos por resueltos. Una
-corrección que no cumple esa condición no cierra el hallazgo, así que no la des por buena
-solo porque la tarea esté hecha.
+tarea con hallazgos vuelve sola a la cola para que quien la hizo los corrija sobre su
+misma rama; no crees otra tarea para corregirlos.
 
 El trabajo revisado que espera a que el creador lo integre es la única cosa que no avanza
 sola. Si lleva ahí un rato, recuérdaselo.
+
+## Preguntas de los agentes y tareas bloqueadas
+
+Un agente puede dejar preguntas al terminar. Te llegan en el apartado «Preguntas de los
+agentes», cada una con la tarea desde la que se hizo.
+
+Responde cada pregunta con una nota a esa tarea, en el campo `notes` del plan. La tarea
+la recibe en su siguiente ejecución. Si la respuesta la tiene que dar el creador, pídesela
+en tu respuesta y no dejes la nota hasta tenerla.
+
+Una tarea bloqueada no vuelve sola a la cola. Cuando lo que la bloqueaba ya está resuelto,
+por tu nota, por una decisión del creador o por otra tarea que ha terminado, reábrela en
+el campo `reopen` con una frase que diga qué ha cambiado. Si no ha cambiado nada, déjala
+bloqueada y dile al creador qué hace falta.
+
+Una tarea que el reviewer ha rechazado varias veces seguidas se bloquea. Antes de
+reabrirla, lee lo que dijeron el builder y el reviewer: casi siempre falta una decisión, o
+la tarea estaba mal planteada. Reformúlala, o llévasela al creador.
 
 ## Qué se revisa y qué no
 

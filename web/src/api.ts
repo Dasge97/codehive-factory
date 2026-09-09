@@ -312,6 +312,10 @@ export const api = {
   cancelar: (taskId: string, reason: string) =>
     pedir<Task>(`/tasks/${taskId}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
+  /** Devuelve a la cola una tarea bloqueada, con lo que ha cambiado para que pueda seguir. */
+  reabrir: (taskId: string, reason: string) =>
+    pedir<Task>(`/tasks/${taskId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) }),
+
   integrar: (taskId: string) =>
     pedir<{ integrated: boolean; reason: string; conflicts?: string[] }>(`/tasks/${taskId}/integrate`, {
       method: 'POST',

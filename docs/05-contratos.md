@@ -201,9 +201,16 @@ agentes.
     { "title": "...", "body": "...", "supersedes_title": "..." }
   ],
   "priority_changes": [{ "task_id": "tsk_...", "priority": 10 }],
-  "cancellations": [{ "task_id": "tsk_...", "reason": "..." }]
+  "cancellations": [{ "task_id": "tsk_...", "reason": "..." }],
+  "notes": [{ "task_id": "tsk_...", "body": "Respuesta o indicación que la tarea recibe en su siguiente ejecución." }],
+  "reopen": [{ "task_id": "tsk_...", "reason": "Qué ha cambiado para que una tarea bloqueada pueda seguir." }]
 }
 ```
+
+**Notas y reaperturas.** Las preguntas que los agentes dejan en `questions` llegan al
+orquestador en su encargo. Las contesta con `notes`. Una tarea bloqueada solo vuelve a la
+cola si alguien la reabre: el orquestador con `reopen`, o el creador desde la web
+(decisión D46).
 
 **Cómo se enlazan las dependencias.** El campo `depends_on` acepta títulos de otras
 tareas del mismo plan, o identificadores de tareas que ya existen. El orquestador no
@@ -214,8 +221,9 @@ funciones normales del sistema. Si una tarea no se puede crear, el resto del pla
 aplica igual y el fallo se le cuenta al orquestador en su siguiente turno.
 
 **Qué recibe el orquestador.** Objetivo del proyecto, decisiones vigentes, todas las
-tareas con su estado y su motivo de espera, el equipo con la longitud de cada cola, las
-autorizaciones pendientes y la conversación reciente.
+tareas con su estado, su motivo de espera y lo que dijo su agente, los hallazgos abiertos,
+el equipo con la longitud de cada cola, las autorizaciones pendientes, las preguntas de
+los agentes y la conversación reciente.
 
 ## 5.7 Configuración de un proyecto
 

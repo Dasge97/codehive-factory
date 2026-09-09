@@ -60,9 +60,23 @@ export function Detalle({ detalle, eventos, alCerrar, alRecargar, alAbrirTarea }
         </header>
 
         <div className="contenido">
-          {task.blocked_reason && (
+          {task.status === 'blocked' && (
             <div className="aviso">
-              <strong>Bloqueada.</strong> {task.blocked_reason}
+              <div>
+                <strong>Bloqueada.</strong> {task.blocked_reason}
+              </div>
+              <div className="acciones">
+                <button
+                  className="boton pequeno principal"
+                  disabled={trabajando}
+                  onClick={() => {
+                    const motivo = window.prompt('¿Qué ha cambiado para que pueda seguir? El agente lo leerá en su siguiente intento.');
+                    if (motivo) void accion(() => api.reabrir(task.id, motivo), 'De vuelta en la cola.');
+                  }}
+                >
+                  Volver a la cola
+                </button>
+              </div>
             </div>
           )}
 
@@ -173,15 +187,6 @@ export function Detalle({ detalle, eventos, alCerrar, alRecargar, alAbrirTarea }
                     </div>
                   )}
                   <div className="resolucion">Se da por resuelto cuando: {f.resolution}</div>
-                  {f.fix_task_id && (
-                    <button
-                      className="boton pequeno"
-                      style={{ marginTop: 8 }}
-                      onClick={() => alAbrirTarea(f.fix_task_id!)}
-                    >
-                      Ver la corrección
-                    </button>
-                  )}
                 </div>
               ))}
             </div>

@@ -22,7 +22,8 @@ import {
 import { queueForRole, razonDeEspera } from '../core/queue.js';
 import { listarTurnos, resumenDeTurnos } from '../core/orchestrator-turns.js';
 import { listFindings, listIncrements, readyToIntegrate } from '../core/review.js';
-import { RuleError, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
+import { RuleError, addNotice, listTasks, requireTask, setPriority, setStatus } from '../core/tasks.js';
+import { abandonarLimpieza } from '../workers/runner.js';
 import { now } from '../shared/ids.js';
 import {
   ENGINES,
@@ -398,9 +399,30 @@ export function createApi({ db, bus, supervisor, engines, abrirCarpeta, webDir }
     res.json(setPriority(db, bus, req.params.id, prioridad));
   });
 
-  app.post('/api/tasks/:id/cancel', (req, res) => {
-    const motivo = String(req.body?.reason ?? 'cancelada por el creador');
-    res.json(setStatus(db, bus, req.params.id, 'cancelled', motivo));
+  app.post(
+    '/api/tasks/:id/cancel',
+    asyncHandler(async (req, res) => {
+      const motivo = String(req.body?.reason ?? 'cancelada por el creador');
+      const cancelada = setStatus(db, bus, param(req, 'id'), 'cancelled', motivo);
+      // Cancelar una limpieza no deja colgado al trabajo que la esperaba.
+      if (cancelada.kind === 'refactor') await abandonarLimpieza(db, bus, cancelada.id);
+      res.json(cancelada);
+    }),
+  );
+
+  /**
+   * Devuelve a la cola una tarea bloqueada. Es lo que hace el creador cuando ha resuelto
+   * lo que la bloqueaba: una autorización, una decisión o un fichero que faltaba.
+   */
+  app.post('/api/tasks/:id/reopen', (req, res) => {
+    const tarea = requireTask(db, param(req, 'id'));
+    if (tarea.status !== 'blocked') {
+      res.status(400).json({ error: `La tarea no está bloqueada, está en ${tarea.status}.` });
+      return;
+    }
+    const motivo = String(req.body?.reason ?? '').trim() || 'reabierta por el creador';
+    addNotice(db, tarea.id, 'creator', `Se reabre: ${motivo}`);
+    res.json(setStatus(db, bus, tarea.id, 'ready', motivo));
   });
 
   app.post(

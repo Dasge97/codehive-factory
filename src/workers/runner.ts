@@ -8,10 +8,11 @@ import { agentTools, protectedPaths, requireProject } from '../core/projects.js'
 import { instructionsFor } from '../core/roles.js';
 import { ejecutarVerificacion } from '../core/integration.js';
 import { ficherosProtegidos, motivoDeBloqueo } from '../core/protected-paths.js';
-import { openFindings, publishIncrement } from '../core/review.js';
+import { cerrarTrasLimpieza, openFindings, publishIncrement } from '../core/review.js';
 import { addNotice, markNoticesDelivered, requireTask, setStatus } from '../core/tasks.js';
 import { isRunCurrent, recordStaleResult, releaseLease } from '../core/leases.js';
-import { helpRequestToTask, markDelivered } from '../core/agent-messages.js';
+import { helpRequestToTask, markDelivered, sendAgentMessage } from '../core/agent-messages.js';
+import { orchestratorAgent, postChatMessage } from '../core/orchestrator.js';
 import { newId, now } from '../shared/ids.js';
 import {
   AGENT_RESULT_JSON_SCHEMA,
@@ -23,7 +24,18 @@ import {
   type Task,
 } from '../shared/types.js';
 import type { Engine, EngineRunOutcome } from '../engines/types.js';
-import { changedFiles, ensureWorktree, git, lastCommit, resolveCommit, uncommittedFiles } from './git.js';
+import {
+  changedFiles,
+  discardChanges,
+  ensureDetachedWorktree,
+  ensureWorktree,
+  git,
+  isGitRepo,
+  lastCommit,
+  removeWorktree,
+  resolveCommit,
+  uncommittedFiles,
+} from './git.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -55,6 +67,11 @@ export interface RunTaskResult {
   result: AgentResult | null;
   parseError: string | null;
   incrementId: string | null;
+  /**
+   * Verdadero cuando lo ocurrido necesita que el orquestador tome un turno: el agente ha
+   * hecho una pregunta, o la tarea ha quedado bloqueada (documento 06, apartado 6.1).
+   */
+  needsOrchestrator: boolean;
 }
 
 /**
@@ -118,7 +135,14 @@ export async function runTask(
   if (!isRunCurrent(db, run.id)) {
     const { result: tardio } = parseResult(outcome.resultText);
     recordStaleResult(db, bus, run.id, tardio?.summary ?? null);
-    return { outcome, result: null, parseError: 'La ejecución ya había sido sustituida.', incrementId: null };
+    await recogerWorkspace(project.repo_path, task, workspace);
+    return {
+      outcome,
+      result: null,
+      parseError: 'La ejecución ya había sido sustituida.',
+      incrementId: null,
+      needsOrchestrator: false,
+    };
   }
   const denegaciones = saveApprovals(db, bus, task, run, outcome);
 
@@ -150,28 +174,67 @@ export async function runTask(
     maxAttempts: project.max_task_attempts, apoyos,
   });
 
-  return { outcome, result, parseError, incrementId };
+  await recogerWorkspace(project.repo_path, task, workspace);
+
+  const preguntas = elevarPreguntas(db, bus, task, agent, result);
+  const bloqueada = requireTask(db, task.id).status === 'blocked';
+
+  // Una limpieza que se bloquea no deja esperando al trabajo que limpiaba.
+  if (bloqueada && task.kind === 'refactor') await abandonarLimpieza(db, bus, task.id);
+
+  return { outcome, result, parseError, incrementId, needsOrchestrator: preguntas > 0 || bloqueada };
 }
 
 // ---------------------------------------------------------------------------
 // Espacio de trabajo
 // ---------------------------------------------------------------------------
 
+interface Workspace {
+  path: string;
+  baseCommit: string;
+  /** Cómo se deja el directorio al terminar la ejecución. */
+  alTerminar: 'conservar' | 'descartar_cambios' | 'eliminar';
+}
+
+/**
+ * Prepara el directorio donde va a trabajar el motor.
+ *
+ * Ningún agente trabaja en el directorio del creador (decisión D45). El motor se lanza
+ * con Bash y sin pedir permiso, y una instrucción de «no modifiques nada» es una petición,
+ * no una garantía. Cada tipo de tarea tiene su sitio:
+ *
+ * - Las que escriben código: un worktree con su rama. Una limpieza sigue en el worktree
+ *   del trabajo que limpia.
+ * - Una revisión: el worktree del trabajo que revisa, que está parado mientras tanto. Al
+ *   terminar se descarta lo que haya dejado.
+ * - Una investigación: un worktree sin rama sobre la rama principal, que se elimina al
+ *   terminar.
+ */
 async function prepareWorkspace(
   db: Db,
   task: Task,
   repoPath: string,
   mainBranch: string,
   installCommand: string | null,
-): Promise<{ path: string; baseCommit: string }> {
-  // Las tareas que solo leen trabajan sobre el repositorio principal: crearles un worktree
-  // costaría tiempo y disco sin darles nada.
+): Promise<Workspace> {
+  if (task.kind === 'review') return prepararRevision(db, task, repoPath);
+
   if (!ESCRIBEN_CODIGO.has(task.kind)) {
-    const ruta = task.workspace_path ?? repoPath;
-    return { path: ruta, baseCommit: task.base_commit ?? (await resolveCommit(repoPath, 'HEAD')) };
+    // Una carpeta que no es un repositorio no admite worktrees. Solo se puede leer.
+    if (!(await isGitRepo(repoPath))) {
+      return { path: repoPath, baseCommit: '', alTerminar: 'conservar' };
+    }
+
+    const commit = await resolveCommit(repoPath, mainBranch).catch(() => resolveCommit(repoPath, 'HEAD'));
+    const ruta = join(workspacesRoot(), task.id);
+    const { created } = await ensureDetachedWorktree(repoPath, ruta, commit);
+    if (created && installCommand) {
+      await ejecutarComando(installCommand, ruta).catch(() => undefined);
+    }
+    return { path: ruta, baseCommit: commit, alTerminar: 'eliminar' };
   }
 
-  // Una corrección continúa en la rama del trabajo que corrige, no en una nueva.
+  // Una limpieza continúa en la rama y el worktree del trabajo que limpia, no en uno nuevo.
   const rama = task.branch ?? branchForTask(task.parent_task_id ?? task.id);
   const ruta = task.workspace_path ?? join(workspacesRoot(), task.parent_task_id ?? task.id);
 
@@ -185,7 +248,45 @@ async function prepareWorkspace(
     'UPDATE tasks SET workspace_path = ?, branch = ?, base_commit = COALESCE(base_commit, ?), updated_at = ? WHERE id = ?',
   ).run(ruta, rama, baseCommit, now(), task.id);
 
-  return { path: ruta, baseCommit: task.base_commit ?? baseCommit };
+  return { path: ruta, baseCommit: task.base_commit ?? baseCommit, alTerminar: 'conservar' };
+}
+
+/**
+ * El reviewer trabaja en el worktree del trabajo que revisa: ahí están la rama, las
+ * dependencias instaladas y el commit exacto. Si ese worktree ya no existe, se le prepara
+ * uno sin rama sobre el commit revisado.
+ */
+async function prepararRevision(db: Db, task: Task, repoPath: string): Promise<Workspace> {
+  const revisada = task.parent_task_id ? requireTask(db, task.parent_task_id) : null;
+  const commit = task.base_commit ?? revisada?.head_commit ?? (await resolveCommit(repoPath, 'HEAD'));
+
+  if (revisada?.workspace_path && (await isGitRepo(revisada.workspace_path))) {
+    db.prepare('UPDATE tasks SET workspace_path = ?, updated_at = ? WHERE id = ?').run(
+      revisada.workspace_path,
+      now(),
+      task.id,
+    );
+    return { path: revisada.workspace_path, baseCommit: commit, alTerminar: 'descartar_cambios' };
+  }
+
+  const ruta = join(workspacesRoot(), task.id);
+  await ensureDetachedWorktree(repoPath, ruta, commit);
+  return { path: ruta, baseCommit: commit, alTerminar: 'eliminar' };
+}
+
+/** Deja el directorio de trabajo como corresponde a su tipo de tarea. */
+async function recogerWorkspace(repoPath: string, task: Task, workspace: Workspace): Promise<void> {
+  try {
+    if (workspace.alTerminar === 'descartar_cambios') {
+      await discardChanges(workspace.path);
+    } else if (workspace.alTerminar === 'eliminar') {
+      await removeWorktree(repoPath, workspace.path);
+    }
+  } catch {
+    // No poder recoger el directorio no invalida el resultado de la ejecución. Quedará un
+    // worktree de más, que `git worktree prune` limpia en la siguiente integración.
+  }
+  void task;
 }
 
 async function ejecutarComando(comando: string, cwd: string): Promise<{ ok: boolean; salida: string }> {
@@ -582,6 +683,63 @@ function crearApoyos(
   return creadas;
 }
 
+/**
+ * Lleva al orquestador las preguntas que el agente dejó en su resultado.
+ *
+ * Una pregunta que se queda en la base de datos sin que nadie la lea es trabajo parado
+ * sin que se sepa por qué. Cada una se guarda como mensaje dirigido al orquestador, que
+ * la ve en su siguiente turno, y se publica en el chat para que el creador también la vea.
+ *
+ * Devuelve cuántas preguntas se han elevado.
+ */
+function elevarPreguntas(db: Db, bus: EventBus, task: Task, agent: Agent, result: AgentResult | null): number {
+  const preguntas = (result?.questions ?? []).map((p) => p.trim()).filter(Boolean);
+  if (preguntas.length === 0) return 0;
+
+  const orquestador = orchestratorAgent(db, task.project_id);
+  for (const pregunta of preguntas) {
+    sendAgentMessage(db, bus, {
+      project_id: task.project_id,
+      from_agent_id: agent.id,
+      to_agent_id: orquestador?.id ?? null,
+      kind: 'question',
+      body: pregunta,
+      task_id: task.id,
+    });
+  }
+
+  postChatMessage(
+    db,
+    bus,
+    task.project_id,
+    agent.role,
+    `Sobre «${task.title}»:\n${preguntas.map((p) => `- ${p}`).join('\n')}`,
+    task.id,
+  );
+
+  return preguntas.length;
+}
+
+/**
+ * Cierra una limpieza que no va a terminar: bloqueada o cancelada.
+ *
+ * La rama vuelve al commit que el reviewer aprobó, para que lo que el refactorer dejara a
+ * medias no entre en la integración, y el trabajo que esperaba a la limpieza queda hecho
+ * con ese commit.
+ */
+export async function abandonarLimpieza(db: Db, bus: EventBus, refactorTaskId: string): Promise<void> {
+  const refactor = requireTask(db, refactorTaskId);
+  if (refactor.kind !== 'refactor' || !refactor.parent_task_id) return;
+
+  const padre = requireTask(db, refactor.parent_task_id);
+  if (padre.head_commit && padre.workspace_path && (await isGitRepo(padre.workspace_path))) {
+    await git(padre.workspace_path, ['reset', '--hard', '--quiet', padre.head_commit]).catch(() => undefined);
+    await git(padre.workspace_path, ['clean', '-fd', '--quiet']).catch(() => undefined);
+  }
+
+  cerrarTrasLimpieza(db, bus, refactorTaskId);
+}
+
 interface FinishRunInput {
   task: Task;
   agent: Agent;
@@ -734,6 +892,9 @@ function decideTaskStatus(
         setStatus(db, bus, task.id, 'in_review', 'incremento publicado, pendiente de revisión');
       } else {
         setStatus(db, bus, task.id, 'done', result.summary);
+        // Una limpieza que termina sin dejar nada que revisar cierra también el trabajo
+        // que la esperaba.
+        if (task.kind === 'refactor') cerrarTrasLimpieza(db, bus, task.id);
       }
       return;
 

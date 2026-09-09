@@ -20,10 +20,12 @@ enseñar. Cada prueba dice qué se hace y qué hay que ver.
 | P1-11 Una petición de autorización llega al creador | Pasa | `runner.test.ts`, bloque «autorizaciones y consumo». |
 | P1-12 El creador integra | Pasa, y también con agentes reales | `integration.test.ts` y el apartado siguiente. |
 | P1-13 La web refleja el estado real | Pasa | `api.test.ts`, canal de eventos en vivo. |
-| P1-14 Recorrido completo del creador | Pasa con agentes reales | Ver el apartado siguiente. |
+| P1-14 Recorrido completo del creador | Con agentes reales, solo el camino sin hallazgos hasta el 9 de septiembre | Ver «Tercera ejecución real» al final. |
 
-Las 14 pruebas pasan. El conjunto entero son 125 pruebas automáticas. Los ficheros citados
-están en `src/core/` y `src/workers/`.
+Las 14 pruebas automáticas pasan. Hasta el 9 de septiembre de 2026, la ejecución real de
+P1-14 no había incluido ninguna corrección: las dos ejecuciones reales de los apartados
+siguientes fueron aprobadas sin hallazgos. La tercera ejecución real, al final de este
+documento, es la que fuerza fallos.
 
 ## Primera ejecución real de principio a fin
 

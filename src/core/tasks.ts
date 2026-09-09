@@ -35,7 +35,7 @@ export class RuleError extends Error {
  * De `done` solo se sale a `ready`, y solo por un motivo: la integración falló. Una tarea
  * aprobada sobre su rama aislada puede dar conflicto al fusionar, o romper las
  * verificaciones una vez fusionada, y entonces vuelve a necesitar trabajo (documento 07,
- * apartado 7.7).
+ * apartado 7.8).
  */
 const TRANSICIONES: Record<TaskStatus, readonly TaskStatus[]> = {
   pending: ['ready', 'blocked', 'cancelled'],

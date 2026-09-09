@@ -13,6 +13,7 @@ import {
 } from '../core/orchestrator.js';
 import { requireTask } from '../core/tasks.js';
 import { LEASE_RENEW_MS, reclaimExpiredLeases, renewLease } from '../core/leases.js';
+import { markDelivered } from '../core/agent-messages.js';
 import { newId, now } from '../shared/ids.js';
 import { guardarTurno } from '../core/orchestrator-turns.js';
 import type { Agent, AgentRole } from '../shared/types.js';
@@ -293,7 +294,11 @@ export class Supervisor {
       run: claim.run,
       engine: motor,
     })
-      .then(() => undefined)
+      .then((resultado) => {
+        // Una pregunta de un agente o una tarea bloqueada son trabajo del orquestador. Sin
+        // este aviso, se quedarían esperando al siguiente mensaje del creador.
+        if (resultado.needsOrchestrator && !this.parando) this.requestOrchestratorTurn();
+      })
       .catch((e) => {
         appendEvent(this.db, this.bus, {
           project_id: projectId,
@@ -421,6 +426,9 @@ export class Supervisor {
 
       const resultado = applyPlan(this.db, this.bus, projectId, validado.data);
 
+      // Las preguntas de los agentes que iban en este encargo ya están vistas.
+      markDelivered(this.db, agent.id);
+
       appendEvent(this.db, this.bus, {
         project_id: projectId,
         type: 'run.finished',
@@ -459,7 +467,7 @@ export class Supervisor {
  *
  * Al arrancar no puede haber ninguna ejecución en marcha, porque sus procesos ya no
  * existen. Se marcan como interrumpidas con su motivo y sus tareas vuelven a estar listas
- * (documento 07, apartado 7.11).
+ * (documento 07, apartado 7.13).
  */
 export function recoverInterruptedRuns(
   db: Db,
