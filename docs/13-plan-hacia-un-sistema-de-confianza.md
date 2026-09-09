@@ -89,7 +89,7 @@ Cierra la condición C6. Es la parte que más se aprovecha de SwarmForge.
 | Tarea | Qué se hace | Hecho cuando |
 | --- | --- | --- |
 | F5-01 | Artículo de ingeniería en `instrucciones/comunes/`: pruebas primero cuando el proyecto lo permita, tamaño máximo de un cambio, nombres, tratamiento de errores, dependencias nuevas solo con permiso del creador. | El fichero existe y cabe en una página. |
-| F5-02 | Reglas por lenguaje, en ficheros aparte que se cargan según el proyecto: JavaScript y TypeScript primero, después lo que haga falta. | Un proyecto de Node recibe sus reglas; uno de Python no las recibe. |
+| F5-02 | Reglas por lenguaje, en ficheros aparte que se cargan según el proyecto: PHP con Symfony primero, porque es lo que usa el proyecto de la fase 6; JavaScript y TypeScript después. | Un proyecto de Symfony recibe sus reglas; uno de Node no las recibe. |
 | F5-03 | El reviewer usa la constitución como lista de comprobación: cada regla incumplida es un hallazgo con la regla citada. | Un cambio que incumple una regla escrita recibe un hallazgo que la cita. |
 | F5-04 | Etapa de especificación para peticiones grandes: el orquestador crea primero una tarea de investigación que produce criterios de aceptación concretos, y solo después las tareas de construcción, que dependen de ella. Es el specifier de SwarmForge, sin rol nuevo. | Una petición de más de un fichero pasa antes por una especificación que el creador puede leer. |
 | F5-05 | Reglas de la constitución por proyecto: un fichero en el repositorio gestionado que añade o anula reglas, y que el creador edita como cualquier otro fichero. | Un proyecto puede decir «aquí no se exigen pruebas». |
@@ -98,7 +98,9 @@ Cierra la condición C6. Es la parte que más se aprovecha de SwarmForge.
 
 Cierra la condición C7. No tiene tareas de código: tiene un método.
 
-1. Se elige un proyecto real del creador, con pruebas y en uso.
+1. El proyecto es **prindia-cloud**, elegido el 9 de septiembre de 2026 entre los repositorios del creador: es el producto en el que más se trabaja (commits casi a diario), tiene 416 pruebas en 65 ficheros que se ejecutan desde esta máquina en tres minutos y medio contra el MySQL del contenedor, y todo lo que produzca pasa igualmente por el botón de integrar. `prindia-home`, con 367 pruebas, es el segundo proyecto cuando la primera semana vaya bien.
+
+   Condiciones de arranque para ese proyecto: un solo worker de builder y una sola ejecución a la vez, porque todas las pruebas usan la misma base `prindia_cloud_test` y se la resiembran; `composer install` como comando de instalación; tiempo máximo de ejecución de 30 minutos; `.env`, `.env.test` y `composer.lock` protegidos. La primera tarea que se le pide al sistema es que cada worktree pueda usar su propia base de pruebas, para poder subir a dos workers.
 2. Durante dos semanas todo el trabajo de ese proyecto entra por Code Hive Factory.
 3. Cada incidencia se apunta en el documento 14 con la fecha, qué pasó, qué hizo el
    sistema, qué tuvo que hacer el creador, y qué se cambia.
@@ -120,7 +122,7 @@ Cierra la condición C8, y recupera la revisión con un segundo motor.
 | F7-01 | Guía de arranque completa: requisitos, instalación, primer proyecto, qué hacer cuando algo falla. Probada por alguien que no sea el creador, en una máquina limpia. | Esa persona llega a integrar una tarea sin preguntar nada. |
 | F7-02 | Arranque como servicio de Windows, con reinicio automático y registro en fichero. | Sobrevive a un reinicio del equipo sin tocar nada. |
 | F7-03 | Codex en una máquina donde el Codex instalado sea compatible con la cuenta: volver a validar el adaptador contra la versión real, como se hizo hoy con Claude. | El reviewer revisa con Codex un incremento de Claude, y viceversa, en la tercera ejecución real repetida. |
-| F7-04 | Un proyecto que no es de Node: comprobación de que el comando de verificación, el de instalación y las reglas por lenguaje funcionan con Python o con otro. | Fila nueva en el documento 10. |
+| F7-04 | Un proyecto que no es de PHP: comprobación de que el comando de verificación, el de instalación y las reglas por lenguaje funcionan con Node (por ejemplo `pocket-terminal`) o con Python. | Fila nueva en el documento 10. |
 
 ## 13.4 Lo que no entra en este plan
 
