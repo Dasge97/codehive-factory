@@ -1,6 +1,6 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -129,6 +129,45 @@ export class ClaudeCodeEngine implements Engine {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Encargo mínimo con esquema, con el modelo más barato y sin herramientas.
+   *
+   * Pasa por el mismo camino que una tarea real: las mismas opciones de la línea de
+   * órdenes, el mismo esquema por `--json-schema` y la misma lectura del resultado. Si
+   * una actualización del motor cambia cualquiera de las tres, falla aquí y no en la
+   * primera tarea del creador.
+   */
+  async probe(): Promise<{ ok: boolean; error?: string }> {
+    const handle = this.start({
+      prompt: 'Devuelve el campo ok con el valor "ok". No hagas nada más.',
+      cwd: tmpdir(),
+      allowedTools: [],
+      timeoutMs: 120_000,
+      model: 'haiku',
+      resultSchema: {
+        type: 'object',
+        properties: { ok: { type: 'string' } },
+        required: ['ok'],
+        additionalProperties: false,
+      },
+      permissionMode: 'default',
+    });
+    const outcome = await handle.wait();
+
+    if (outcome.status !== 'succeeded') {
+      return { ok: false, error: outcome.error ?? `la ejecución terminó en estado ${outcome.status}` };
+    }
+    try {
+      const resultado = JSON.parse(outcome.resultText ?? '') as { ok?: unknown };
+      if (typeof resultado.ok !== 'string') {
+        return { ok: false, error: `el resultado no cumple el esquema: ${(outcome.resultText ?? '').slice(0, 200)}` };
+      }
+    } catch {
+      return { ok: false, error: `el resultado no es JSON: ${(outcome.resultText ?? '').slice(0, 200)}` };
+    }
+    return { ok: true };
   }
 
   /** Argumentos de la línea de órdenes. Público para poder comprobarlo sin lanzar el motor. */

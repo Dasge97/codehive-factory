@@ -98,6 +98,35 @@ export class CodexEngine implements Engine {
     }
   }
 
+  /** Encargo mínimo con esquema, por el mismo camino que una tarea real. */
+  async probe(): Promise<{ ok: boolean; error?: string }> {
+    const handle = this.start({
+      prompt: 'Devuelve el campo ok con el valor "ok". No hagas nada más.',
+      cwd: tmpdir(),
+      allowedTools: [],
+      timeoutMs: 120_000,
+      resultSchema: {
+        type: 'object',
+        properties: { ok: { type: 'string' } },
+        required: ['ok'],
+        additionalProperties: false,
+      },
+      permissionMode: 'plan',
+    });
+    const outcome = await handle.wait();
+    if (outcome.status !== 'succeeded') {
+      return { ok: false, error: outcome.error ?? `la ejecución terminó en estado ${outcome.status}` };
+    }
+    try {
+      const resultado = JSON.parse(outcome.resultText ?? '') as { ok?: unknown };
+      return typeof resultado.ok === 'string'
+        ? { ok: true }
+        : { ok: false, error: `el resultado no cumple el esquema: ${(outcome.resultText ?? '').slice(0, 200)}` };
+    } catch {
+      return { ok: false, error: `el resultado no es JSON: ${(outcome.resultText ?? '').slice(0, 200)}` };
+    }
+  }
+
   buildArgs(request: EngineRunRequest, rutaEsquema: string | null, rutaResultado: string): string[] {
     const args = [
       'exec',

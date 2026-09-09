@@ -110,6 +110,12 @@ export interface EngineCapabilities {
 export interface Engine {
   readonly name: EngineName;
   capabilities(): EngineCapabilities;
+  /**
+   * Lanza un encargo mínimo de verdad y comprueba que vuelve un resultado que cumple un
+   * esquema. Es lo que distingue «el ejecutable existe» de «el motor funciona con estas
+   * opciones y esta cuenta». Se ejecuta al arrancar (tarea F3-01 del documento 13).
+   */
+  probe?(): Promise<{ ok: boolean; error?: string }>;
   start(request: EngineRunRequest, onProgress?: (p: EngineProgress) => void): EngineHandle;
   /** Comprueba que el motor está instalado y utilizable. Devuelve su versión. */
   check(): Promise<{ ok: boolean; version?: string; error?: string }>;

@@ -50,7 +50,7 @@ comprobarla que no depende de la opinión de nadie.
 | C7 | Ha trabajado dos semanas sobre un proyecto real del creador con un registro de incidencias, y la última semana no tiene ninguna incidencia grave. | Documento 14, diario de uso. |
 | C8 | Otra persona puede arrancarlo en otra máquina siguiendo la guía, sin ayuda. | Guía de arranque probada por alguien que no sea el creador. |
 
-Hoy se cumplen C2 y C3. Las demás son el trabajo de este plan.
+Hoy se cumplen C1, C2 y C3. Las demás son el trabajo de este plan.
 
 ## 13.3 Fases
 
@@ -63,7 +63,7 @@ Cierra las condiciones C1 y C5.
 
 | Tarea | Qué se hace | Hecho cuando |
 | --- | --- | --- |
-| F3-01 | Comprobación de arranque contra el motor real: un encargo mínimo con esquema, con tiempo máximo corto. Si falla, el sistema no arranca y dice el motivo y la versión del motor. | Una versión de Claude Code con opciones distintas se detecta al arrancar, no en la primera tarea. |
+| F3-01 | Comprobación de arranque contra el motor real: un encargo mínimo con esquema, con tiempo máximo corto. Si falla, el sistema no arranca y dice el motivo y la versión del motor. | **Hecha el 9 de septiembre de 2026.** Cada motor recibe un encargo de prueba al arrancar; un motor que responde a `--version` pero no pasa el encargo deja el sistema sin arrancar, con el motivo. Comprobado con el motor real y con uno que falla a propósito. |
 | F3-02 | Cuota real: averiguar qué publica Claude Code 2.1 sobre los límites de la suscripción, porque el campo de utilización llega vacío. Si el motor ya no lo publica, la web lo dice en vez de enseñar un hueco. | La cabecera muestra la cuota o dice que el motor no la informa. |
 | F3-03 | Cuota agotada de verdad: provocarla o simularla con el motor real, comprobar que las tareas quedan bloqueadas con motivo y que se reanudan al volver. | Fila nueva en el documento 10. |
 | F3-04 | Motor caído: matar el proceso del motor a mitad, con el sistema en marcha. Comprobar el resultado de la ejecución, el estado de la tarea y el reintento. | Fila nueva en el documento 10. |

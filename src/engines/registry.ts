@@ -57,11 +57,30 @@ export class EngineRegistry {
     return [...this.fallos.entries()].map(([engine, reason]) => ({ engine, reason }));
   }
 
-  /** Comprueba que cada motor disponible responde, y con qué versión. */
-  async check(): Promise<Array<{ engine: EngineName; ok: boolean; version?: string; error?: string }>> {
+  /**
+   * Comprueba que cada motor disponible responde, con qué versión, y que un encargo mínimo
+   * de verdad vuelve con un resultado válido.
+   *
+   * La versión sola no basta: el 9 de septiembre de 2026 el ejecutable respondía a
+   * `--version` y ningún agente podía ejecutarse, porque las opciones habían cambiado. Un
+   * motor que no pasa el encargo de prueba se da por no utilizable, con el motivo.
+   */
+  async check(): Promise<Array<{ engine: EngineName; ok: boolean; version?: string; error?: string; probed: boolean }>> {
     const resultados = [];
     for (const motor of this.motores.values()) {
-      resultados.push({ engine: motor.name, ...(await motor.check()) });
+      const version = await motor.check();
+      if (!version.ok || !motor.probe) {
+        resultados.push({ engine: motor.name, ...version, probed: false });
+        continue;
+      }
+      const prueba = await motor.probe();
+      resultados.push({
+        engine: motor.name,
+        ok: prueba.ok,
+        version: version.version,
+        error: prueba.ok ? undefined : `el encargo de prueba falló: ${prueba.error}`,
+        probed: true,
+      });
     }
     return resultados;
   }

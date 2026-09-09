@@ -277,19 +277,30 @@ export async function createApp(config: AppConfig): Promise<App> {
     },
 
     async start() {
+      // Cada motor recibe un encargo mínimo de verdad antes de dar el sistema por
+      // arrancado. Si ninguno lo pasa, no se arranca: mejor no empezar que descubrirlo
+      // en la primera tarea del creador (tarea F3-01 del documento 13).
+      console.log('Comprobando los motores con un encargo de prueba...');
       const comprobaciones = await engines.check();
       const utilizables = comprobaciones.filter((c) => c.ok);
+      const fallidos = comprobaciones.filter((c) => !c.ok);
 
       if (utilizables.length === 0) {
         const motivos = [
-          ...comprobaciones.map((c) => `${c.engine}: ${c.error}`),
+          ...comprobaciones.map((c) => `${c.engine} ${c.version ?? ''}: ${c.error}`.replace(/\s+:/, ':')),
           ...engines.unavailable().map((u) => `${u.engine}: ${u.reason}`),
         ];
-        throw new Error(['No hay ningún motor disponible.', ...motivos].join('\n'));
+        throw new Error(['No hay ningún motor que pase la comprobación de arranque.', ...motivos].join('\n'));
       }
 
       for (const c of utilizables) {
-        console.log(`Motor listo: ${c.engine} ${c.version ?? ''}`.trim());
+        console.log(
+          `Motor listo: ${c.engine} ${c.version ?? ''}`.trim() +
+            (c.probed ? '. El encargo de prueba ha vuelto con un resultado válido.' : ''),
+        );
+      }
+      for (const c of fallidos) {
+        console.log(`Motor NO utilizable: ${c.engine} ${c.version ?? ''}. ${c.error}`);
       }
       for (const u of engines.unavailable()) {
         console.log(`Motor no disponible: ${u.engine}. ${u.reason}`);
